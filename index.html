@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>The Sunless Vault</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- Compact HUD: one line in portrait, a narrow column in landscape -->
+        <header id="hud">
+            <div class="stat-item" title="Health"><span class="icon">♥</span><span id="hp-value" class="value">20/20</span></div>
+            <div class="stat-item" title="Floor"><span class="icon">▼</span><span id="floor-value" class="value">1</span></div>
+            <div class="stat-item" title="Keys"><span class="icon">⚷</span><span id="keys-value" class="value">0</span></div>
+            <div class="stat-item" title="Turn"><span class="icon">⧗</span><span id="turn-value" class="value">0</span></div>
+            <button id="help-button" type="button" aria-label="Help">?</button>
+        </header>
+
+        <!-- Board: the canvas is sized from JavaScript to fill this area -->
+        <main id="viewport">
+            <canvas id="game-canvas"></canvas>
+
+            <!-- Short log: last 2-3 messages, older ones fade -->
+            <div id="combat-log" aria-live="polite">
+                <p class="log-entry system">Welcome to The Sunless Vault.</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Help overlay (hidden until ? is pressed; shown automatically on first run) -->
+    <div id="help-overlay" hidden>
+        <div class="help-panel">
+            <h2>How to play</h2>
+            <p><strong>Move / attack:</strong> WASD or Arrow keys, or tap the board</p>
+            <p><strong>Wait a turn:</strong> Space</p>
+            <p><strong>New game:</strong> R</p>
+            <p><strong>Help:</strong> ?</p>
+            <p class="muted">Walk into an enemy to attack it. Find the stairs to descend.</p>
+            <button id="help-close" type="button">Close</button>
+        </div>
+    </div>
+
+    <!-- Classic scripts (no modules, so index.html works by double-click). Order matters: main.js last. -->
+    <script src="src/rng.js"></script>
+    <script src="src/map.js"></script>
+    <script src="src/entities.js"></script>
+    <script src="src/combat.js"></script>
+    <script src="src/render.js"></script>
+    <script src="src/main.js"></script>
+</body>
+</html>

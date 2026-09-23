@@ -1,0 +1,231 @@
+/* ==========================================================================
+   The Sunless Vault - Full-screen layout, minimal HUD, pixel-art canvas
+   ========================================================================== */
+
+/* Resets & Global Variables */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg-color: #0d0e11;
+    --panel-bg: #181a20;
+    --border-color: #323745;
+    --text-primary: #e0e6f0;
+    --text-muted: #78839b;
+    --accent-red: #e74c3c;
+    --accent-gold: #f1c40f;
+    --accent-green: #2ecc71;
+    --font-family: 'Courier New', Courier, monospace;
+    --hud-size: 2.5rem; /* height of the HUD bar (portrait) / width of the HUD column (landscape) */
+}
+
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Main Layout Shell: fills the whole screen.
+   Portrait (default): HUD on top, board below. */
+#game-container {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh; /* mobile browsers: excludes the address bar where supported */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Compact HUD */
+#hud {
+    flex: 0 0 var(--hud-size);
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 0.5rem;
+    padding: 0 0.75rem;
+    background-color: var(--panel-bg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    font-weight: bold;
+}
+
+.stat-item .icon {
+    color: var(--text-muted);
+}
+
+.stat-item .value {
+    color: var(--text-primary);
+}
+
+#hp-value {
+    color: var(--accent-red);
+}
+
+#keys-value {
+    color: var(--accent-gold);
+}
+
+#help-button,
+#help-close {
+    font-family: var(--font-family);
+    font-weight: bold;
+    color: var(--text-primary);
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#help-button {
+    width: 2rem;
+    height: 2rem;
+    font-size: 1rem;
+}
+
+/* Landscape: board takes the width, HUD becomes a narrow column on the right. */
+@media (orientation: landscape) {
+    #game-container {
+        flex-direction: row-reverse;
+    }
+
+    #hud {
+        flex: 0 0 calc(var(--hud-size) * 2.4);
+        flex-direction: column;
+        justify-content: center;
+        gap: 1rem;
+        padding: 1rem 0.5rem;
+        border-bottom: none;
+        border-left: 1px solid var(--border-color);
+    }
+}
+
+/* Board area: the canvas fills it; JavaScript sizes the canvas backing store
+   (area x devicePixelRatio) and draws the floor centered with snapped tile size. */
+#viewport {
+    flex: 1 1 auto;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    background-color: #000;
+    overflow: hidden;
+}
+
+/* CRITICAL: Pixel-Art crisp rendering settings.
+   (Also set ctx.imageSmoothingEnabled = false when drawing sprites.) */
+#game-canvas {
+    image-rendering: optimizeSpeed;             /* Older versions of FF */
+    image-rendering: -moz-crisp-edges;          /* Firefox */
+    image-rendering: -webkit-optimize-contrast; /* Safari */
+    image-rendering: pixelated;                 /* Standard */
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none; /* taps go to the game, not to page scroll/zoom */
+}
+
+/* Short log: last 2-3 messages overlaid at the bottom of the board */
+#combat-log {
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    pointer-events: none; /* never blocks taps on the board */
+    text-shadow: 0 1px 2px #000;
+}
+
+.log-entry {
+    color: var(--text-primary);
+    transition: opacity 0.4s ease;
+}
+
+/* Older messages fade: newest is last */
+.log-entry:nth-last-child(2) {
+    opacity: 0.65;
+}
+
+.log-entry:nth-last-child(n + 3) {
+    opacity: 0.35;
+}
+
+.log-entry.system {
+    color: var(--text-muted);
+}
+
+.log-entry.combat-player {
+    color: var(--accent-green);
+}
+
+.log-entry.combat-enemy {
+    color: var(--accent-red);
+}
+
+.log-entry.item {
+    color: var(--accent-gold);
+}
+
+/* Help overlay */
+#help-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background-color: rgba(0, 0, 0, 0.75);
+    z-index: 10;
+}
+
+#help-overlay[hidden] {
+    display: none;
+}
+
+.help-panel {
+    width: 100%;
+    max-width: 26rem;
+    padding: 1.25rem;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-size: 0.9rem;
+}
+
+.help-panel h2 {
+    font-size: 1.1rem;
+    color: var(--accent-gold);
+}
+
+.help-panel .muted {
+    color: var(--text-muted);
+}
+
+#help-close {
+    align-self: flex-end;
+    padding: 0.4rem 1rem;
+}
