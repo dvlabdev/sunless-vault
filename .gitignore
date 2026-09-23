@@ -7,8 +7,9 @@ desktop.ini
 .vscode/
 .idea/
 
-# Claude Code personal settings
+# Claude Code personal settings and the preview-only local server
 .claude/settings.local.json
+.claude/launch.json
 
 # Scratch / temporary files
 *.tmp

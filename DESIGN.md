@@ -14,7 +14,15 @@
 3. **Deterministic Turn Engine:** Time moves ONLY when the player acts (Move, Attack, Wait, Use Item). No animation loop: the screen is redrawn after each turn or input.
 4. **Seeded RNG:** All randomness goes through `SV.rng` (a small seeded generator, e.g. mulberry32). Its current value is stored in `state`, so any run and any bug can be reproduced. `Math.random()` is not used for gameplay.
 5. **No Hardcoded Sizes:** Code never writes `15` or `13` for the map. Everything reads `map.width` / `map.height`.
-6. **Classic Scripts, One Namespace:** No `import`/`export` (ES modules don't load from `file://`). Each file starts with `const SV = window.SV = window.SV || {};` and attaches its functions to `SV`. Script order in `index.html` matters. Level data lives in `.js` files, not JSON (no `fetch()` from `file://`).
+6. **Classic Scripts, One Namespace:** No `import`/`export` (ES modules don't load from `file://`). Each file is wrapped in its own function so its helpers stay private, and attaches its public functions to `SV`:
+   ```js
+   (function () {
+       'use strict';
+       const SV = window.SV = window.SV || {};
+       // ...
+   })();
+   ```
+   (A top-level `const SV` in two classic scripts would throw "already declared".) Script order in `index.html` matters. Level data lives in `.js` files, not JSON (no `fetch()` from `file://`).
 7. **File Layout (starting point, not a cage):**
    | File | Responsibility |
    |---|---|
@@ -46,13 +54,16 @@
 - **Variable size:** each floor has its own `width` × `height` (outer walls included). Allowed range 7–19 on each side; default 15×15. Rectangles are allowed (e.g. a 17×7 corridor).
 - **Floor config** (stored on its run-map node): `{ width, height, enemyBudget, vision, special }`. This one config drives difficulty and "peculiar" floors (e.g. a cramped 9×9 ambush). Hand-made special floors carry their own size and layout.
 - **Generation:** random wall scatter or hand-made room templates, placed with `SV.rng`. The number of walls, enemies and items scales with floor area, so small floors aren't overcrowded and large ones aren't empty. No BSP room/corridor generation (grids are too small).
-- **Reachability check:** after generation, a flood fill from the player's start must reach the stairs (and every item). If not, regenerate with the next RNG value.
+- **Reachability check:** after placing walls, a flood fill from the player's start finds every reachable tile. Unreachable pockets are turned into walls, so every open tile (stairs, enemies, items) is reachable. If less than 60% of the inner area remains, regenerate with the next RNG value (after 30 failed tries, the floor has no inner walls).
+- **Placement:** stairs go on a tile at least 70% of the maximum distance from the start. Enemies start at least 4 steps away (2 on ambush floors).
 
 ### 3.4 Movement & Input
 - 4-directional grid movement: WASD / Arrow Keys. Space = wait one turn.
 - **Tap-to-move (mobile):** tapping the board moves the player one step in the dominant direction (horizontal or vertical) of the tap relative to the player. Tap position is converted to a tile using the current tile size and board offset.
-- `?` key / `?` button: help overlay (controls). Shown automatically on the first run.
+- Enter / tap: descend from the run map; start a new run from the death or victory screen.
+- `?` or `H` key / `?` button: help overlay (controls). Shown automatically on the first run.
 - `R`: abandon the run and start a new game (with confirmation).
+- `?seed=123` at the end of the page address starts that exact run (bug reproduction).
 
 ### 3.5 Combat
 - **Bump combat:** moving into an enemy's tile attacks it.
@@ -76,13 +87,21 @@
 
 ### 3.7 Turn Sequence
 1. Player inputs an action.
-2. Player action resolves (move, attack, item). Invalid actions (walking into a wall) do not spend a turn.
+2. Player action resolves (move, attack, item). Invalid actions (walking into a wall) do not spend a turn. Stepping onto the stairs ends the floor immediately (enemies don't get a last move).
 3. Enemies act one by one. **After each enemy, check the player's HP; at 0, stop immediately.**
 4. Environment effects trigger (traps, status ticks).
 5. Autosave (§5).
 6. Renderer redraws.
 
 ### 3.8 Progression & Items
+- **Player start:** 20 HP, 2 attack.
+- **Resting:** reaching the stairs heals `REST_HEAL` (6) HP, up to max HP.
+- **Phase 1 enemies** (same behaviour, different stats; real archetypes come in Phase 3):
+  | Enemy | HP | Attack | Budget cost | From floor |
+  |---|---|---|---|---|
+  | Rat `r` | 2 | 1 | 1 | 1 |
+  | Ghoul `g` | 4 | 2 | 2 | 3 |
+  | Brute `B` | 6 | 3 | 4 | 6 |
 - **Stat pickups (Phase 2):** walking over them applies a permanent boost, e.g. whetstone = +1 attack, heart = +max HP. No equipment slots.
 - **Counters:** potions (heal), keys (open locked doors), bombs, ammo.
 - Difficulty rises with depth through the floor config (`enemyBudget`, size, `vision`, special floors).
@@ -96,6 +115,16 @@
 ### 3.10 End States
 - **Permadeath:** HP 0 → `dead` mode, save deleted, option to start a new run.
 - **Victory:** reaching the Vault → `won` mode, save deleted.
+
+### 3.11 Environment & Hazards (Phase 2)
+All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`, which hits whatever entity stands on a tile. Barrels, bombs, knockback and collisions all use it.
+- **Explosive Barrels:** destructible entities with 1 HP. Taking any damage makes them explode: 3 damage to every entity in the 3×3 around the barrel, and inner wall tiles in that 3×3 become floor.
+  - The outer border wall is indestructible (the board edge must stay closed).
+  - Stairs and locked doors are unaffected (otherwise keys become pointless).
+  - Chain reactions use a queue: a barrel caught in a blast explodes after the current one, and each barrel explodes only once (no infinite loops).
+- **Push & Collision:** a pushed entity (e.g. Hammer knockback) moves 1 tile. If that tile holds a solid wall, a closed door or another entity, the push fails and:
+  - The pushed entity takes 1 impact damage; if it hit another entity, that one takes 1 too (a barrel taking impact damage explodes).
+  - The pushed entity is stunned (`stunned: 1`) and skips its next action. If the player is ever stunned (only possible once enemies can push, Phase 3), the enemies act twice.
 
 ## 4. Rendering & Layout
 
@@ -127,9 +156,19 @@
 - Every `localStorage` call is wrapped in `try/catch`. If storage is unavailable (private window, blocked), the game runs normally without saving.
 - Limits: clearing browser data deletes the save; saves are per browser.
 
-## 6. Development Roadmap
-- [ ] **Phase 1 (MVP):** seeded RNG, full-screen canvas layout + compact HUD/log, floor generation with reachability check (variable size), player movement (keyboard + tap), BFS enemy pathing, bump combat with fixed damage, stairs, linear run map screen, game over / restart, victory at the Vault, autosave/resume, `?` help overlay.
-- [ ] **Phase 2 (Items):** potions, keys + locked doors, stat pickups, weapon patterns (sword/spear/axe/hammer), area consumables (bomb).
+## 6. Debugging
+- `state.debug` is toggled with the key left of `1` (matched by position, `e.code === 'Backquote'`: `~` on US keyboards, `\` on Italian ones; the `` ` `` / `~` characters also work) or `SV.toggleDebug()` from the browser console. The HUD shows `DEBUG` (`DEBUG·GOD` with god mode) while it's on. Debug stays on when starting a new run.
+- **Debug keys** (only while debug is on):
+  - `G`: toggle infinite HP (god mode, `state.godMode`): damage to the player is ignored.
+  - `F`: toggle full map visibility (`state.fullVision`, bypasses fog of war; no effect until fog exists in Phase 3).
+  - `N`: instantly clear the current floor and descend to the next node (from the run map it skips the next floor).
+- Every debug action logs to the browser console with a `[DEBUG]` prefix.
+- `state.debugUsed` becomes true the first time debug is turned on in a run and never resets, so that run can't record a best score (Phase 5).
+- `SV.getState()` in the browser console returns the live game state for inspection.
+
+## 7. Development Roadmap
+- [x] **Phase 1 (MVP):** seeded RNG, full-screen canvas layout + compact HUD/log, floor generation with reachability check (variable size), player movement (keyboard + tap), BFS enemy pathing, bump combat with fixed damage, stairs, linear run map screen, game over / restart, victory at the Vault, autosave/resume, `?` help overlay, debug tools.
+- [ ] **Phase 2 (Items & Hazards):** potions, keys + locked doors, stat pickups, weapon patterns (sword/spear/axe/hammer), area consumables (bomb), push & collision, explosive barrels.
 - [ ] **Phase 3 (Depth):** multiple enemy archetypes incl. archers, room hazards, straight-line ranged attacks, per-floor fog of war, branching run map, then free-aim targeting.
 - [ ] **Phase 4 (Polish):** sprite rendering via the `appearance` table, sound effects via Web Audio API, optional CRT overlay.
 - [ ] **Phase 5 (Endless Mode):** nodes generated on the fly, score = deepest floor, best score saved in `localStorage`, difficulty scaling beyond floor `FLOOR_COUNT`.

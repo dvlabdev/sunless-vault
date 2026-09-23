@@ -84,6 +84,15 @@ body {
     color: var(--accent-gold);
 }
 
+#debug-badge {
+    color: #ff5fd2;
+    font-size: 0.75rem;
+}
+
+#debug-badge[hidden] {
+    display: none;
+}
+
 #help-button,
 #help-close {
     font-family: var(--font-family);
