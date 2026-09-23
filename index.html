@@ -13,8 +13,11 @@
         <header id="hud">
             <div class="stat-item" title="Health"><span class="icon">♥</span><span id="hp-value" class="value">20/20</span></div>
             <div class="stat-item" title="Floor"><span class="icon">▼</span><span id="floor-value" class="value">1</span></div>
+            <div class="stat-item" title="Weapon"><span class="icon">⚔</span><span id="weapon-value" class="value">Sword</span></div>
             <div class="stat-item" title="Keys"><span class="icon">⚷</span><span id="keys-value" class="value">0</span></div>
-            <div class="stat-item" title="Turn"><span class="icon">⧗</span><span id="turn-value" class="value">0</span></div>
+            <button id="potion-button" class="hud-button" type="button" title="Drink a potion (P)"><span class="icon">!</span><span id="potions-value">0</span></button>
+            <button id="bomb-button" class="hud-button" type="button" title="Use a bomb (B)"><span class="icon">*</span><span id="bombs-value">0</span></button>
+            <div id="turn-item" class="stat-item" title="Turn"><span class="icon">⧗</span><span id="turn-value" class="value">0</span></div>
             <div id="debug-badge" class="stat-item" hidden>DEBUG</div>
             <button id="help-button" type="button" aria-label="Help">?</button>
         </header>
@@ -37,9 +40,12 @@
             <p><strong>Move / attack:</strong> WASD or Arrow keys, or tap the board</p>
             <p><strong>Wait a turn:</strong> Space, or tap yourself</p>
             <p><strong>Descend / confirm:</strong> Enter, or tap</p>
+            <p><strong>Drink potion:</strong> P, or the ! button</p>
+            <p><strong>Use bomb:</strong> B, or the * button (hits all around you, not you)</p>
             <p><strong>New game:</strong> R</p>
             <p><strong>Help:</strong> ? or H</p>
             <p class="muted">Walk into an enemy to attack it. Damage is fixed: red pips show enemy HP. Find the stairs (&gt;) to descend, and reach the Vault below floor 10.</p>
+            <p class="muted">Step on items to pick them up. Weapons swap: spear ↑ hits 2 in a line, axe Y hits all around (−1 damage), hammer T knocks back. Walk into a barrel O to push it; blasts and impacts make it explode. A key ⚷ opens a locked door +.</p>
             <button id="help-close" type="button">Close</button>
         </div>
     </div>

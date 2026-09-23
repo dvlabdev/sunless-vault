@@ -6,7 +6,8 @@
     const WALL = '#';
     const FLOOR = '.';
     const STAIRS = '>';
-    SV.TILE = { WALL, FLOOR, STAIRS };
+    const DOOR = 'D'; // locked door; becomes FLOOR once opened
+    SV.TILE = { WALL, FLOOR, STAIRS, DOOR };
 
     // Fixed order (up, right, down, left) so ties are always broken the same way.
     const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -14,17 +15,18 @@
 
     // One entry per floor, from floor 1 upward to the last floor before the Vault.
     // Sizes include the outer walls. special: null | 'ambush' | 'corridor' | 'cavern'.
+    // loot = loose items, barrels = explosive barrels, closet = locked treasure closet + key.
     SV.FLOOR_PLAN = [
-        { width: 9,  height: 9,  enemyBudget: 2,  special: null },
-        { width: 11, height: 11, enemyBudget: 3,  special: null },
-        { width: 13, height: 11, enemyBudget: 4,  special: null },
-        { width: 15, height: 15, enemyBudget: 5,  special: null },
-        { width: 9,  height: 9,  enemyBudget: 5,  special: 'ambush' },
-        { width: 15, height: 15, enemyBudget: 6,  special: null },
-        { width: 17, height: 7,  enemyBudget: 6,  special: 'corridor' },
-        { width: 15, height: 15, enemyBudget: 8,  special: null },
-        { width: 13, height: 13, enemyBudget: 8,  special: null },
-        { width: 17, height: 17, enemyBudget: 10, special: 'cavern' },
+        { width: 9,  height: 9,  enemyBudget: 2,  special: null,       loot: 1, barrels: 0, closet: false },
+        { width: 11, height: 11, enemyBudget: 3,  special: null,       loot: 1, barrels: 1, closet: true },
+        { width: 13, height: 11, enemyBudget: 4,  special: null,       loot: 2, barrels: 1, closet: false },
+        { width: 15, height: 15, enemyBudget: 5,  special: null,       loot: 2, barrels: 2, closet: true },
+        { width: 9,  height: 9,  enemyBudget: 5,  special: 'ambush',   loot: 1, barrels: 2, closet: false },
+        { width: 15, height: 15, enemyBudget: 6,  special: null,       loot: 2, barrels: 2, closet: true },
+        { width: 17, height: 7,  enemyBudget: 6,  special: 'corridor', loot: 2, barrels: 2, closet: false },
+        { width: 15, height: 15, enemyBudget: 8,  special: null,       loot: 2, barrels: 3, closet: true },
+        { width: 13, height: 13, enemyBudget: 8,  special: null,       loot: 2, barrels: 2, closet: false },
+        { width: 17, height: 17, enemyBudget: 10, special: 'cavern',   loot: 3, barrels: 4, closet: true },
     ];
     SV.FLOOR_COUNT = SV.FLOOR_PLAN.length;
 
@@ -37,7 +39,7 @@
             depth: i + 1,
             seed: Math.floor(SV.random(holder) * 4294967296),
             type: 'floor',
-            floor: { width: cfg.width, height: cfg.height, enemyBudget: cfg.enemyBudget, vision: null, special: cfg.special },
+            floor: Object.assign({ vision: null }, cfg),
             next: [i + 1],
             status: i === 0 ? 'current' : 'ahead',
         }));
@@ -50,12 +52,15 @@
         return map.tiles[y * map.width + x];
     };
 
+    // Walls and locked doors block movement.
     SV.isWalkable = function (map, x, y) {
-        return SV.tileAt(map, x, y) !== WALL;
+        const t = SV.tileAt(map, x, y);
+        return t !== WALL && t !== DOOR;
     };
 
     // Breadth-first search: steps from (sx, sy) to every tile; -1 = unreachable.
-    SV.distanceMap = function (map, sx, sy) {
+    // passDoors = treat locked doors as open (used by floor generation).
+    SV.distanceMap = function (map, sx, sy, passDoors) {
         const w = map.width;
         const dist = new Array(w * map.height).fill(-1);
         const queue = [sy * w + sx];
@@ -68,7 +73,8 @@
                 const nx = x + dx;
                 const ny = y + dy;
                 const n = ny * w + nx;
-                if (!SV.isWalkable(map, nx, ny) || dist[n] !== -1) continue;
+                const passable = SV.isWalkable(map, nx, ny) || (passDoors && SV.tileAt(map, nx, ny) === DOOR);
+                if (!passable || dist[n] !== -1) continue;
                 dist[n] = dist[i] + 1;
                 queue.push(n);
             }
@@ -97,6 +103,11 @@
         }
         const map = { width: w, height: h, tiles };
         const inner = (w - 2) * (h - 2);
+        const toXY = i => ({ x: i % w, y: Math.floor(i / w) });
+
+        // Treasure closet first, so random walls can't spoil it.
+        const reserved = new Set();
+        const closet = cfg.closet ? carveCloset(map, holder, reserved) : null;
 
         // Wall clusters: short random walks of 1-3 tiles.
         if (withWalls) {
@@ -106,8 +117,9 @@
                 let y = SV.randInt(holder, 1, h - 2);
                 const length = SV.randInt(holder, 1, 3);
                 for (let i = 0; i < length && toPlace > 0; i++) {
-                    if (tiles[y * w + x] === FLOOR) {
-                        tiles[y * w + x] = WALL;
+                    const index = y * w + x;
+                    if (tiles[index] === FLOOR && !reserved.has(index)) {
+                        tiles[index] = WALL;
                         toPlace--;
                     }
                     const [dx, dy] = SV.pick(holder, DIRS);
@@ -117,35 +129,95 @@
             }
         }
 
+        const inCloset = i => closet !== null && closet.interior.includes(i);
         const open = [];
-        tiles.forEach((t, i) => { if (t === FLOOR) open.push(i); });
+        tiles.forEach((t, i) => { if (t === FLOOR && !inCloset(i)) open.push(i); });
         const startIndex = SV.pick(holder, open);
-        const start = { x: startIndex % w, y: Math.floor(startIndex / w) };
+        const start = toXY(startIndex);
 
-        // Pockets the player can't reach become walls, so everything left is reachable.
-        const dist = SV.distanceMap(map, start.x, start.y);
-        const reachable = [];
-        tiles.forEach((t, i) => {
-            if (t !== FLOOR) return;
-            if (dist[i] < 0) tiles[i] = WALL;
-            else reachable.push(i);
-        });
-        if (withWalls && reachable.length < inner * 0.6) return null;
+        // Pockets the player can't reach (even through the door) become walls.
+        const reach = SV.distanceMap(map, start.x, start.y, true);
+        tiles.forEach((t, i) => { if (t === FLOOR && reach[i] < 0) tiles[i] = WALL; });
+
+        // The main area: everything reachable without opening the closet door.
+        const dist = SV.distanceMap(map, start.x, start.y, false);
+        const main = [];
+        tiles.forEach((t, i) => { if (t === FLOOR && dist[i] >= 0) main.push(i); });
+        if (withWalls && main.length < inner * 0.6) return null;
+        if (closet && dist[closet.approach] < 0) return null;
 
         // Stairs far from the start.
-        const maxDist = Math.max(...reachable.map(i => dist[i]));
-        const stairsIndex = SV.pick(holder, reachable.filter(i => dist[i] >= maxDist * 0.7));
+        const maxDist = Math.max(...main.map(i => dist[i]));
+        const stairsIndex = SV.pick(holder, main.filter(i => dist[i] >= maxDist * 0.7 && (!closet || i !== closet.approach)));
         tiles[stairsIndex] = STAIRS;
 
-        // Enemies not too close to the start.
-        const minDist = cfg.special === 'ambush' ? 2 : 4;
-        const spots = SV.shuffle(holder, reachable.filter(i => i !== stairsIndex && dist[i] >= minDist));
-        const types = SV.chooseEnemies(holder, cfg.enemyBudget, depth);
+        // Everything else goes on distinct main-area tiles.
+        const spots = SV.shuffle(holder, main.filter(i => i !== startIndex && i !== stairsIndex && (!closet || i !== closet.approach)));
+        const used = new Set();
+        const take = (minDist) => {
+            const i = spots.find(s => !used.has(s) && dist[s] >= minDist);
+            if (i === undefined) return null;
+            used.add(i);
+            return toXY(i);
+        };
+
         const enemies = [];
-        for (let k = 0; k < types.length && k < spots.length; k++) {
-            enemies.push({ type: types[k], x: spots[k] % w, y: Math.floor(spots[k] / w) });
+        const minEnemyDist = cfg.special === 'ambush' ? 2 : 4;
+        for (const type of SV.chooseEnemies(holder, cfg.enemyBudget, depth)) {
+            const spot = take(minEnemyDist);
+            if (!spot) break;
+            enemies.push({ type, x: spot.x, y: spot.y });
         }
 
-        return { map, start, enemies };
+        const items = [];
+        if (closet) {
+            const key = take(2);
+            if (!key) return null;
+            items.push({ kind: 'key', x: key.x, y: key.y });
+            items.push(Object.assign({ kind: SV.chooseTreasure(holder) }, toXY(closet.interior[0])));
+            if (SV.random(holder) < 0.5) items.push(Object.assign({ kind: 'potion' }, toXY(closet.interior[1])));
+        }
+        for (const kind of SV.chooseLoot(holder, cfg.loot, depth)) {
+            const spot = take(1);
+            if (!spot) break;
+            items.push({ kind, x: spot.x, y: spot.y });
+        }
+
+        const barrels = [];
+        for (let k = 0; k < cfg.barrels; k++) {
+            const spot = take(3);
+            if (!spot) break;
+            barrels.push(spot);
+        }
+
+        return { map, start, enemies, items, barrels };
+    }
+
+    // A 2-tile closet against a random outer wall, walled in, with one locked door facing inward.
+    // u runs along the chosen wall, v is the distance from it (v = 1 touches the wall).
+    function carveCloset(map, holder, reserved) {
+        const w = map.width;
+        const h = map.height;
+        const side = SV.randInt(holder, 0, 3); // top, bottom, left, right
+        const along = side < 2 ? w : h;
+        const at = (u, v) => {
+            if (side === 0) return v * w + u;
+            if (side === 1) return (h - 1 - v) * w + u;
+            if (side === 2) return u * w + v;
+            return u * w + (w - 1 - v);
+        };
+
+        const u = SV.randInt(holder, 2, along - 4);
+        const interior = [at(u, 1), at(u + 1, 1)];
+        const ring = [at(u - 1, 1), at(u + 2, 1)];
+        for (let k = u - 1; k <= u + 2; k++) ring.push(at(k, 2));
+        const doorU = u + SV.randInt(holder, 0, 1);
+        const door = at(doorU, 2);
+        const approach = at(doorU, 3); // tile in front of the door, kept open
+
+        ring.forEach(i => { map.tiles[i] = WALL; });
+        map.tiles[door] = DOOR;
+        interior.concat(ring, [approach]).forEach(i => reserved.add(i));
+        return { interior, door, approach };
     }
 })();

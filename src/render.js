@@ -8,10 +8,22 @@
         wall:   { glyph: '#', color: '#4a5163', bg: '#1b1e26' },
         floor:  { glyph: '·', color: '#2a2f3a', bg: '#0e0f13' },
         stairs: { glyph: '>', color: '#5dade2', bg: '#0e0f13' },
+        door:   { glyph: '+', color: '#f1c40f', bg: '#1b1e26' },
         player: { glyph: '@', color: '#f1c40f' },
         rat:    { glyph: 'r', color: '#c9a27e' },
         ghoul:  { glyph: 'g', color: '#7fb77e' },
         brute:  { glyph: 'B', color: '#e67e22' },
+        barrel: { glyph: 'O', color: '#d35400' },
+        // items
+        potion:    { glyph: '!', color: '#ff6b9d' },
+        bomb:      { glyph: '*', color: '#e74c3c' },
+        key:       { glyph: '⚷', color: '#f1c40f' },
+        whetstone: { glyph: '≡', color: '#aeb6bf' },
+        heart:     { glyph: '♥', color: '#e74c3c' },
+        sword:     { glyph: '/', color: '#d6eaf8' },
+        spear:     { glyph: '↑', color: '#d6eaf8' },
+        axe:       { glyph: 'Y', color: '#d6eaf8' },
+        hammer:    { glyph: 'T', color: '#d6eaf8' },
     };
 
     // Run-map icons for special floors.
@@ -30,7 +42,12 @@
     const hud = {
         hp: document.getElementById('hp-value'),
         floor: document.getElementById('floor-value'),
+        weapon: document.getElementById('weapon-value'),
         keys: document.getElementById('keys-value'),
+        potions: document.getElementById('potions-value'),
+        bombs: document.getElementById('bombs-value'),
+        potionButton: document.getElementById('potion-button'),
+        bombButton: document.getElementById('bomb-button'),
         turn: document.getElementById('turn-value'),
         debug: document.getElementById('debug-badge'),
     };
@@ -100,7 +117,7 @@
         for (let y = 0; y < map.height; y++) {
             for (let x = 0; x < map.width; x++) {
                 const t = map.tiles[y * map.width + x];
-                const look = t === SV.TILE.WALL ? A.wall : t === SV.TILE.STAIRS ? A.stairs : A.floor;
+                const look = t === SV.TILE.WALL ? A.wall : t === SV.TILE.STAIRS ? A.stairs : t === SV.TILE.DOOR ? A.door : A.floor;
                 const px = ox + x * tile;
                 const py = oy + y * tile;
                 ctx.fillStyle = look.bg;
@@ -109,10 +126,17 @@
             }
         }
 
+        // Items under everything else, then barrels, enemies (dimmed while stunned), player.
+        for (const item of state.items) {
+            drawGlyph(A[item.kind].glyph, A[item.kind].color, ox + item.x * tile, oy + item.y * tile, tile);
+        }
+        for (const b of state.barrels) {
+            drawGlyph(A.barrel.glyph, A.barrel.color, ox + b.x * tile, oy + b.y * tile, tile);
+        }
         for (const e of state.enemies) {
             const px = ox + e.x * tile;
             const py = oy + e.y * tile;
-            drawGlyph(A[e.type].glyph, A[e.type].color, px, py, tile);
+            drawGlyph(A[e.type].glyph, e.stunned > 0 ? COLORS.muted : A[e.type].color, px, py, tile);
             drawPips(e.hp, SV.ENEMY_TYPES[e.type].hp, px, py, tile);
         }
 
@@ -191,7 +215,8 @@
         ctx.textAlign = 'center';
         setFont(u * 0.85, true);
         ctx.fillStyle = COLORS.text;
-        ctx.fillText(`HP ${p.hp}/${p.maxHp}   ATK ${p.atk}   Kills ${state.kills}`, W / 2, H - u * 2.6);
+        const weapon = p.weapon.charAt(0).toUpperCase() + p.weapon.slice(1);
+        ctx.fillText(`HP ${p.hp}/${p.maxHp}  ATK ${p.atk}  ${weapon}  Kills ${state.kills}`, W / 2, H - u * 2.6);
         if (state.mode === 'map') {
             setFont(u * 0.75, false);
             ctx.fillStyle = COLORS.muted;
@@ -252,7 +277,12 @@
         const node = state.run.nodes[state.run.current];
         hud.hp.textContent = `${p.hp}/${p.maxHp}`;
         hud.floor.textContent = node.type === 'vault' ? 'V' : String(node.depth);
-        hud.keys.textContent = '0';
+        hud.weapon.textContent = p.weapon.charAt(0).toUpperCase() + p.weapon.slice(1);
+        hud.keys.textContent = String(p.keys);
+        hud.potions.textContent = String(p.potions);
+        hud.bombs.textContent = String(p.bombs);
+        hud.potionButton.disabled = state.mode !== 'floor' || p.potions === 0;
+        hud.bombButton.disabled = state.mode !== 'floor' || p.bombs === 0;
         hud.turn.textContent = String(state.turn);
         hud.debug.hidden = !state.debug;
         hud.debug.textContent = state.godMode ? 'DEBUG·GOD' : 'DEBUG';

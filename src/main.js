@@ -5,9 +5,11 @@
     const SV = window.SV = window.SV || {};
 
     const SAVE_KEY = 'sunless-vault-save';
-    const SAVE_VERSION = 1;          // bump whenever the shape of `state` changes
+    const SAVE_VERSION = 2;          // bump whenever the shape of `state` changes
     const HELP_SEEN_KEY = 'sunless-vault-help-seen';
-    const REST_HEAL = 6;             // HP recovered between floors (potions arrive in Phase 2)
+    const REST_HEAL = 6;             // HP recovered between floors
+    const POTION_HEAL = 8;
+    const HEART_BONUS = 4;           // +max HP and heal
     const LOG_LIMIT = 30;
 
     const KEY_DIRS = {
@@ -19,6 +21,8 @@
     const helpOverlay = document.getElementById('help-overlay');
     const helpButton = document.getElementById('help-button');
     const helpClose = document.getElementById('help-close');
+    const potionButton = document.getElementById('potion-button');
+    const bombButton = document.getElementById('bomb-button');
 
     let state = null;
     let inputLockedUntil = 0; // brief pause after screen changes, so a held key or double tap doesn't skip them
@@ -43,6 +47,8 @@
             player: SV.makePlayer(),
             map: null,
             enemies: [],
+            items: [],
+            barrels: [],
             log: [],
         };
         SV.log(s, `A new descent begins. Seed ${seed}.`, 'system');
@@ -76,6 +82,8 @@
         const floor = SV.generateFloor(node.floor, node.seed, node.depth);
         state.map = floor.map;
         state.enemies = floor.enemies.map(e => SV.makeEnemy(state, e.type, e.x, e.y));
+        state.items = floor.items.map(i => SV.makeItem(state, i.kind, i.x, i.y));
+        state.barrels = floor.barrels.map(b => SV.makeBarrel(state, b.x, b.y));
         state.player.x = floor.start.x;
         state.player.y = floor.start.y;
         state.mode = 'floor';
@@ -91,6 +99,8 @@
         state.run.current = node.next[0];
         state.map = null;
         state.enemies = [];
+        state.items = [];
+        state.barrels = [];
         const next = currentNode();
         next.status = 'current';
 
@@ -123,24 +133,111 @@
 
     // ---- Turn sequence ----------------------------------------------------
 
-    // dx = dy = 0 means "wait a turn".
+    // 1-2. Player action. dx = dy = 0 means "wait a turn".
     function playerAction(dx, dy) {
         const p = state.player;
-
-        // 1-2. Player action
         if (dx !== 0 || dy !== 0) {
             const nx = p.x + dx;
             const ny = p.y + dy;
+            const barrel = SV.barrelAt(state, nx, ny);
             if (SV.enemyAt(state, nx, ny)) {
-                SV.playerAttack(state, SV.PATTERNS.melee(p.x, p.y, dx, dy));
+                SV.playerAttack(state, dx, dy);
+            } else if (barrel) {
+                if (SV.push(state, barrel, dx, dy)) moveTo(nx, ny); // follow the barrel
+            } else if (SV.tileAt(state.map, nx, ny) === SV.TILE.DOOR) {
+                if (p.keys === 0) {
+                    SV.log(state, 'The door is locked. You need a key.', 'system');
+                    render();
+                    return; // no turn spent
+                }
+                p.keys--;
+                state.map.tiles[ny * state.map.width + nx] = SV.TILE.FLOOR;
+                SV.log(state, 'You unlock the door.', 'item');
             } else if (SV.isWalkable(state.map, nx, ny)) {
-                p.x = nx;
-                p.y = ny;
+                moveTo(nx, ny);
             } else {
                 return; // bumping a wall costs no turn
             }
         }
+        finishTurn();
+    }
+
+    function drinkPotion() {
+        const p = state.player;
+        if (p.potions === 0) {
+            SV.log(state, 'You have no potions.', 'system');
+        } else if (p.hp === p.maxHp) {
+            SV.log(state, 'You are already at full health.', 'system');
+        } else {
+            const healed = Math.min(POTION_HEAL, p.maxHp - p.hp);
+            p.potions--;
+            p.hp += healed;
+            SV.log(state, `You drink a potion (+${healed} HP).`, 'item');
+            finishTurn();
+            return;
+        }
+        render(); // no turn spent
+    }
+
+    function throwBomb() {
+        if (state.player.bombs === 0) {
+            SV.log(state, 'You have no bombs.', 'system');
+            render();
+            return;
+        }
+        SV.useBomb(state);
+        finishTurn();
+    }
+
+    function moveTo(x, y) {
+        const p = state.player;
+        p.x = x;
+        p.y = y;
+        pickUp();
+    }
+
+    // Stepping onto an item picks it up. Weapons swap: the old one stays on the floor.
+    function pickUp() {
+        const p = state.player;
+        const item = SV.itemAt(state, p.x, p.y);
+        if (!item) return;
+
+        if (SV.WEAPONS[item.kind]) {
+            if (item.kind === p.weapon) return;
+            const old = p.weapon;
+            p.weapon = item.kind;
+            item.kind = old;
+            SV.log(state, `You take the ${p.weapon} and drop the ${old}.`, 'item');
+            return;
+        }
+
+        state.items = state.items.filter(i => i !== item);
+        if (item.kind === 'potion') {
+            p.potions++;
+            SV.log(state, 'You pick up a potion.', 'item');
+        } else if (item.kind === 'bomb') {
+            p.bombs++;
+            SV.log(state, 'You pick up a bomb.', 'item');
+        } else if (item.kind === 'key') {
+            p.keys++;
+            SV.log(state, 'You pick up a key.', 'item');
+        } else if (item.kind === 'whetstone') {
+            p.atk++;
+            SV.log(state, 'A whetstone! Your attack rises to ' + p.atk + '.', 'item');
+        } else if (item.kind === 'heart') {
+            p.maxHp += HEART_BONUS;
+            p.hp += HEART_BONUS;
+            SV.log(state, `A heart! Max HP +${HEART_BONUS}.`, 'item');
+        }
+    }
+
+    // After any action that spends a turn.
+    function finishTurn() {
+        const p = state.player;
         state.turn++;
+
+        // Your own action can kill you (an explosion or impact next to you).
+        if (p.hp <= 0) return die();
 
         // Stairs end the floor immediately: enemies don't get a last move.
         if (SV.tileAt(state.map, p.x, p.y) === SV.TILE.STAIRS) {
@@ -150,17 +247,18 @@
 
         // 3. Enemies (stops as soon as the player dies)
         SV.enemiesAct(state);
-        if (p.hp <= 0) {
-            SV.log(state, `You were slain by ${state.killedBy} on floor ${currentNode().depth}.`, 'combat-enemy');
-            endRun('dead');
-            return;
-        }
+        if (p.hp <= 0) return die();
 
-        // 4. Environment effects: none yet (traps and status ticks arrive in Phase 2-3).
+        // 4. Environment effects: none yet (traps and status ticks arrive in Phase 3).
 
         // 5-6. Autosave and redraw
         saveGame();
         render();
+    }
+
+    function die() {
+        SV.log(state, `You were slain by ${state.killedBy} on floor ${currentNode().depth}.`, 'combat-enemy');
+        endRun('dead');
     }
 
     // ---- Debug ------------------------------------------------------------
@@ -246,6 +344,12 @@
             } else if (key === ' ') {
                 e.preventDefault();
                 playerAction(0, 0);
+            } else if (key === 'p') {
+                e.preventDefault();
+                drinkPotion();
+            } else if (key === 'b') {
+                e.preventDefault();
+                throwBomb();
             }
         } else if (key === 'Enter' || key === ' ') {
             e.preventDefault();
@@ -296,6 +400,16 @@
     });
     helpOverlay.addEventListener('click', (e) => {
         if (e.target === helpOverlay) hideHelp(); // tap outside the panel
+    });
+
+    // HUD buttons (mainly for touch screens): same as P and B.
+    potionButton.addEventListener('click', () => {
+        potionButton.blur();
+        if (state.mode === 'floor' && performance.now() >= inputLockedUntil) drinkPotion();
+    });
+    bombButton.addEventListener('click', () => {
+        bombButton.blur();
+        if (state.mode === 'floor' && performance.now() >= inputLockedUntil) throwBomb();
     });
 
     // ---- Save / load (any storage failure = play without saving) ----------
