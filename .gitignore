@@ -1,0 +1,16 @@
+# Windows / macOS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editor settings (personal, not part of the game)
+.vscode/
+.idea/
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# Scratch / temporary files
+*.tmp
+*.log
+_preview*.html
