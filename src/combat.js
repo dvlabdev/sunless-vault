@@ -46,7 +46,7 @@
                 return;
             }
             p.hp = Math.max(0, p.hp - amount);
-            SV.log(state, `${capitalize(source)} hits you for ${amount}.`, 'combat-enemy');
+            SV.log(state, `${capitalize(source)} ${verb(source, 'hit')} you for ${amount}.`, 'combat-enemy');
             if (p.hp === 0 && !state.killedBy) state.killedBy = source;
             return;
         }
@@ -70,9 +70,9 @@
         if (enemy.hp === 0) {
             state.enemies = state.enemies.filter(e => e !== enemy);
             state.kills++;
-            SV.log(state, source === 'you' ? `You slay the ${type.name}.` : `${capitalize(source)} kills the ${type.name}.`, 'combat-player');
+            SV.log(state, source === 'you' ? `You slay the ${type.name}.` : `${capitalize(source)} ${verb(source, 'kill')} the ${type.name}.`, 'combat-player');
         } else {
-            SV.log(state, source === 'you' ? `You hit the ${type.name} (${enemy.hp} HP left).` : `${capitalize(source)} hits the ${type.name}.`, 'combat-player');
+            SV.log(state, source === 'you' ? `You hit the ${type.name} (${enemy.hp} HP left).` : `${capitalize(source)} ${verb(source, 'hit')} the ${type.name}.`, 'combat-player');
             if (type.splits) splitQueue.push(enemy);
         }
     };
@@ -87,8 +87,11 @@
             const leave = slime.hp - stay;
             slime.type = 'slimelet';
             slime.hp = stay;
+            if (leave === 0) {
+                SV.log(state, 'The slime shrinks into a slimelet.', 'combat-player');
+                continue;
+            }
             SV.log(state, 'The slime splits in two!', 'combat-enemy');
-            if (leave === 0) continue;
             const spot = SV.DIRS.map(([dx, dy]) => ({ x: slime.x + dx, y: slime.y + dy }))
                 .find(t => !SV.isBlocked(state, t.x, t.y));
             if (!spot) continue;
@@ -290,6 +293,11 @@
         SV.log(state, 'You light a bomb!', 'item');
         SV.explode(state, p.x, p.y, 'the bomb', true);
     };
+
+    // "The rat hits" but "The spikes hit".
+    function verb(source, base) {
+        return source === 'the spikes' ? base : `${base}s`;
+    }
 
     function capitalize(text) {
         return text.charAt(0).toUpperCase() + text.slice(1);

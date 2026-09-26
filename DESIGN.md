@@ -84,14 +84,14 @@
     | Sword | `/` | The tile in front | 0 | Starting weapon |
     | Spear | `↑` | The tile in front + the one behind it | 0 | **Step and strike:** moving toward an enemy 2 tiles away (free tile in between) moves you 1 tile and attacks it in the same turn |
     | Axe | `Y` | All 8 tiles around you | −1 | **Spin:** waiting (Space / tap yourself) swings it if any enemy is among the 8 tiles; hits adjacent barrels too |
-    | Hammer | `T` | The tile in front | 0 | Knockback 1 tile (§3.11) |
+    | Hammer | `T` | The tile in front | −1 | Knockback 1 tile (§3.11). The −1 (audit balance pass) offsets how much control knockback + wall stuns give |
   - *Phase 2 — bomb:* instant and player-safe: a 3×3 explosion centred on the player that spares the player's tile. Barrels it sets off can still hurt you. `B` key or HUD button; stored as a counter.
   - *Phase 3a — throwing knives* `†`: ammo counter (start with 2; knife loot). Throw in a direction: **Shift + direction**, or **T** then a direction (T/Esc cancels); touch: the **† HUD button**, then tap a direction (tapping yourself or the button cancels). The knife flies until the next tile is a wall/door (lands on the last free tile) or holds something: 1 damage to it (shields block from the front; a barrel explodes — safe if it's ≥ 2 tiles away) and lands on that tile, to be picked up again. Throwing into an adjacent wall does nothing (no turn). While aiming, the 4 flight lines and their targets are previewed.
   - *Phase 3 (last) — free-aim targeting:* for thrown items/spells. Keyboard: a key opens a cursor on the nearest enemy, arrows move it, Enter confirms, Esc cancels. Mobile: tap the item button, tap a target tile, tap again to confirm. Limited range + line-of-sight check (shared with straight-line ranged and fog of war).
 
 ### 3.6 Enemy AI
 - Once per turn, compute a BFS "distance-to-player" map for the whole floor. Walking enemies step to the neighbouring tile with the lowest distance.
-- Enemies never share a tile, never step onto barrels, raised spikes or spikes about to rise. If the best tile is occupied, the enemy tries the next best or waits. Locked doors block their paths. (Pushed or charging enemies can still end up on spikes.)
+- Enemies never share a tile, never step onto barrels, raised spikes or spikes about to rise. Their distance map treats those spikes as walls, so they **route around** spikes instead of waiting behind them (an enemy already standing on such a tile steps to any reachable neighbour). If the best tile is occupied, the enemy tries the next best or waits. Locked doors block their paths. (Pushed or charging enemies can still end up on spikes.)
 - A stunned enemy skips its next action **and loses any announced move**.
 - Enemies act one by one over a snapshot of the list (a bomber can kill others mid-phase).
 - **Every big move is announced one turn ahead** (`intent`, red `!` on the enemy, red outline on the tiles it will hit). Fixed damage, no luck.
@@ -106,7 +106,7 @@
 | Archer | `a` | 2 | 2 | 3 | 3 | Lined up with you (same row/column, ≤ 6 tiles, nothing in between) → **aims** (announced). Next turn **shoots** along that line: the arrow hits the first thing in it (you, an enemy, a barrel) even if you moved away. Never melees. |
 | Charger | `C` | 5 | 3 | 4 | 4 | Lined up (≤ 8, clear line) → **lowers its head** (announced). Next turn **charges** until blocked and hits what it runs into for 3 (barrel explodes; shields block from the front). Runs into a wall/door → 1 impact damage and stunned. |
 | Bomber | `x` | 2 | 3 (blast) | 3 | 5 | In the 8 tiles around you → **lights its fuse** (announced). Next turn **explodes** (normal explosion: 3×3, breaks inner walls, chains barrels, hurts everyone). Killed first = no explosion. |
-| Shieldbearer | `S` | 4 | 2 | 4 | 6 | Melee. **Faces you** (turns at the end of its action; bar drawn on the shield side) and **blocks weapon hits, knives, arrows and charges coming from the half it faces**. Explosions, impacts and spikes aren't blocked; hammer knockback still pushes it (and a wall behind it means impact + stun, then flank it). |
+| Shieldbearer | `S` | 4 | 2 | 4 | 6 | Melee. **Faces the way it last moved** (starts facing you; attacking doesn't turn it; bar drawn on the shield side) and **blocks weapon hits, knives, arrows and charges coming from the half it faces**. Counterplay: step diagonally away, it has to move to reach you and exposes its flank. Explosions, impacts and spikes aren't blocked; hammer knockback still pushes it. (It used to turn toward you after every action, which made it unbeatable in melee — the audit's biggest finding.) |
 
 ### 3.7 Turn Sequence
 1. Player inputs an action.
@@ -133,7 +133,7 @@ Slime splits resolve after steps 2, 3 and 4, each followed by a death check.
   | Knife | `†` | Counter. Thrown ammo (§3.5), lands where it stops |
   | Weapons | `/ ↑ Y T` | Swap with the held weapon |
 - **Counters shown in the HUD:** potions, bombs and knives (tappable buttons), keys.
-- Loose loot weights: potion 5, bomb 3, knife 3, random weapon 1, heart 1 (floor 3+), whetstone 1 (floor 4+).
+- Loose loot weights: potion 2, bomb 3, knife 3, random weapon 1, heart 1 (floor 3+), whetstone 1 (floor 4+). (Potion was 5; the audit run ended with 8 unused potions.)
 - Difficulty rises with depth through the floor config (`enemyBudget`, size, `vision`, special floors).
 
 ### 3.9 Fog of War (Phase 3, per floor)
@@ -222,7 +222,36 @@ Positioning is the core strategy, so the board always shows what your next move 
 - [x] **Phase 1 (MVP):** seeded RNG, full-screen canvas layout + compact HUD/log, floor generation with reachability check (variable size), player movement (keyboard + tap), BFS enemy pathing, bump combat with fixed damage, stairs, linear run map screen, game over / restart, victory at the Vault, autosave/resume, `?` help overlay, debug tools.
 - [x] **Phase 2 (Items & Hazards):** potions, keys + locked doors, stat pickups, weapon patterns (sword/spear/axe/hammer), area consumables (bomb), push & collision, explosive barrels.
 - [x] **Phase 2.1 (Playtest fixes):** weapon damage + description in the HUD, threat preview, kick & roll barrels, spear step-and-strike, axe spin, weapons hit barrels only when adjacent, harder numbers (rest heal 3, enemy budgets +25%), device-aware help with New game button, contextual hint line.
-- [x] **Phase 3a (Combat depth):** slime, archer, charger, bomber, shieldbearer (announced moves), fixed and timed spikes, throwing knives, red enemy-threat outlines and warning hints (save version 3).
-- [ ] **Phase 3b (Exploration):** per-floor fog of war, branching run map, then free-aim targeting.
+- [x] **Phase 3a (Combat depth):** slime, archer, charger, bomber, shieldbearer (announced moves), fixed and timed spikes, throwing knives, enemy-threat display (red dots near you + announced-move lines, after a first "outline everything" version proved too crowded) and warning hints (save version 3).
+- [x] **Phase 3a.1 (Audit balance pass):** shieldbearer faces the way it last moved (flankable), potion loot weight 5 → 2, hammer −1 damage, enemies route around dangerous spikes, log grammar fixes, outlined item glyphs.
+- [ ] **Phase 3b (Exploration):** per-floor fog of war, branching run map, then free-aim targeting. Candidates from the audit: a light/torch that burns down per turn (time pressure against kiting and slow play), a reason to fight (drops or score).
 - [ ] **Phase 4 (Polish):** sprite rendering via the `appearance` table, sound effects via Web Audio API, optional CRT overlay.
 - [ ] **Phase 5 (Endless Mode):** nodes generated on the fly, score = deepest floor, best score saved in `localStorage`, difficulty scaling beyond floor `FLOOR_COUNT`.
+
+## 8. Development Workflow & Current Status
+*Handoff notes so a new session can continue without the chat history. Update this section at the end of each phase.*
+
+### 8.1 How we work
+- The owner is not a professional developer: explain choices in plain language, discuss design options (with a recommendation) before building, and keep this file as the single source of truth for rules and decisions.
+- Each phase: agree the design → plan → implement → verify (tools below + browser) → update this file → commit and push **only when the owner asks**.
+- Repo: `github.com/dvlabdev/sunless-vault`, branch `main`.
+
+### 8.2 Test tools (Node, no dependencies; run from the project folder)
+| Command | What it checks |
+|---|---|
+| `node tools/gen-test.js` | 300 seeds × 10 floors: sizes, border, reachability, closets/keys, distinct placement of everything, trap rules, enemy depths, determinism. Expect `0 problems`. |
+| `node tools/ai-test.js` | ~35 rule checks on hand-built boards: every enemy type, shields/flanking, splits, knives, barrels, spikes, hammer. Expect `ALL PASSED`. |
+| `node tools/sim.js [runs]` | Bot playtests (a "rusher" and a "fighter", one-turn lookahead) over many seeds: win rate, death floors, HP per floor, damage by source, items found/used. `DUMP=1` prints boards where a bot gets stuck. Use to compare versions, not as human win rates. It mirrors the turn sequence of `src/main.js`: keep it in sync. |
+- Browser testing: `.claude/launch.json` (git-ignored) defines a `static` server (`py -m http.server 5173`); `?seed=N` in the address replays a run; `SV.getState()` in the console inspects/edits the live state.
+
+### 8.3 Status after Phase 3a.1 (audit balance pass)
+- **Audit method:** one full hand-played run (seed 2026, won: 292 turns, 32 kills, never below 17 HP, 8 potions unused) + 200 bot runs per style.
+- **Bot results before → after the balance pass:** rusher win 45% → 61%, fighter 31% → 60.5%; shieldbearer damage per run 9.6 → 4.1 (rusher) and 17.9 → 4.3 (fighter); potions found per run 2.4 → 1.3 / 3.6 → 2.2.
+- **Still open (from the audit), in suggested order:**
+  1. **No pressure in the early/mid game:** HP when leaving floors 1–9 is still ≈ full; deaths only happen on floors 6–10.
+  2. **Kiting:** a melee enemy that steps next to you can't attack that turn, so a player who keeps moving is never hit by chasers; with no time cost, slow safe play (chokepoints, walking to the stairs) dominates. Proposed fix: a **light/torch meter** that burns down each turn and refills at the stairs (darkness hurts when it runs out) — fits the theme and Phase 3b fog of war.
+  3. **No reason to fight:** kills give nothing. Options: occasional drops, or a score (kills/turns) on the victory screen.
+  4. The "ambush" floor doesn't ambush (its budget buys ~2 enemies): spawn them around the player.
+  5. Chargers are slow to kill (~20 turns of dodging); hammer knockback can still keep a melee enemy away indefinitely on open ground.
+  6. Phone portrait: tiles are ~24 px with unused vertical space; use it for bigger tiles.
+- **Next phase:** 3b (fog of war, branching run map, free aim) — decide first whether the light meter (item 2) goes in with it.

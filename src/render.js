@@ -159,8 +159,14 @@
             const look = SV.spikesUp(trap) ? A.spikesUp : trap.phase === 1 ? A.spikesRising : A.spikesDown;
             drawGlyph(look.glyph, look.color, ox + trap.x * tile, oy + trap.y * tile, tile);
         }
+        // Items get a dark outline so red threat lines crossing them don't hide them.
+        ctx.lineWidth = Math.max(2, Math.round(tile / 10));
+        ctx.strokeStyle = A.floor.bg;
         for (const item of state.items) {
-            drawGlyph(A[item.kind].glyph, A[item.kind].color, ox + item.x * tile, oy + item.y * tile, tile);
+            const px = ox + item.x * tile;
+            const py = oy + item.y * tile;
+            ctx.strokeText(A[item.kind].glyph, px + tile / 2, py + tile / 2 + tile * 0.04);
+            drawGlyph(A[item.kind].glyph, A[item.kind].color, px, py, tile);
         }
         for (const b of state.barrels) {
             drawGlyph(A.barrel.glyph, A.barrel.color, ox + b.x * tile, oy + b.y * tile, tile);
@@ -195,7 +201,7 @@
             if (threat.tiles.length === 0) continue;
             const start = centre(threat.from);
             const end = centre(threat.tiles[threat.tiles.length - 1]);
-            ctx.strokeStyle = 'rgba(231, 76, 60, 0.85)';
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.65)';
             ctx.lineWidth = Math.max(1, Math.round(tile / (threat.kind === 'charge' ? 10 : 18)));
             ctx.setLineDash(threat.kind === 'charge' ? [tile / 5, tile / 7] : []);
             ctx.beginPath();
@@ -436,7 +442,7 @@
 
         // Warnings first: something will hit you if you stay.
         const hints = a.warnings.slice(0, 2);
-        if (hints.length < 2 && a.shielded.length > 0) hints.push(`The ${name(a.shielded[0])}'s shield blocks the front: hit it from the side, or use barrels/bombs`);
+        if (hints.length < 2 && a.shielded.length > 0) hints.push(`The ${name(a.shielded[0])}'s shield blocks the front: step aside, it turns only when it moves`);
         if (hints.length < 2 && a.bump.length > 0 && a.incoming.size > 0) hints.push(touch ? `Tap the ${name(a.bump[0])} to attack` : `Move into the ${name(a.bump[0])} to attack`);
         if (hints.length < 2 && a.lunge.length > 0) hints.push(touch ? `Tap toward the ${name(a.lunge[0])}: step and strike` : `Move toward the ${name(a.lunge[0])}: step and strike`);
         if (hints.length < 2 && a.spin) hints.push(touch ? 'Tap yourself to swing the axe' : 'Space: swing the axe');

@@ -24,12 +24,12 @@
         sword:  { name: 'sword',  pattern: 'sword',  bonus: 0,  desc: 'hits the tile in front' },
         spear:  { name: 'spear',  pattern: 'spear',  bonus: 0,  desc: 'hits the tile in front and the one behind it; stepping toward an enemy 2 tiles away strikes it', lunge: true },
         axe:    { name: 'axe',    pattern: 'axe',    bonus: -1, desc: 'hits all 8 tiles around you, 1 less damage; waiting swings it', spin: true },
-        hammer: { name: 'hammer', pattern: 'hammer', bonus: 0,  desc: 'hits the tile in front and knocks the enemy back 1 tile', knockback: true },
+        hammer: { name: 'hammer', pattern: 'hammer', bonus: -1, desc: 'hits the tile in front and knocks the enemy back 1 tile, 1 less damage', knockback: true },
     };
 
     // Loose floor loot: weight = relative chance; 'weapon' becomes a random weapon.
     const LOOT_TABLE = [
-        { kind: 'potion',    weight: 5, minDepth: 1 },
+        { kind: 'potion',    weight: 2, minDepth: 1 },
         { kind: 'bomb',      weight: 3, minDepth: 1 },
         { kind: 'knife',     weight: 3, minDepth: 1 },
         { kind: 'weapon',    weight: 1, minDepth: 1 },
@@ -149,8 +149,9 @@
     // One step along the distance map, avoiding enemies, barrels and dangerous spikes.
     function stepToward(state, enemy, dist) {
         const w = state.map.width;
+        // Standing on a tile the route avoids (spikes): any reachable neighbour is an improvement.
         let bestDist = dist[enemy.y * w + enemy.x];
-        if (bestDist < 0) return; // walled off from the player
+        if (bestDist < 0) bestDist = Infinity;
         let best = null;
         for (const [dx, dy] of SV.DIRS) {
             const nx = enemy.x + dx;
@@ -174,9 +175,14 @@
     // Behaviour per ai type. Every big move is announced one turn ahead (intent).
     const ENEMY_AI = {
         melee(state, e, dist) {
-            if (adjacentToPlayer(state, e)) SV.enemyAttack(state, e);
-            else stepToward(state, e, dist);
-            if (SV.ENEMY_TYPES[e.type].shield) SV.faceToward(e, state.player.x, state.player.y);
+            if (adjacentToPlayer(state, e)) {
+                SV.enemyAttack(state, e);
+                return;
+            }
+            const from = { x: e.x, y: e.y };
+            stepToward(state, e, dist);
+            // A shieldbearer faces the way it last moved: step aside and it exposes its flank to reach you.
+            if (e.facing && (e.x !== from.x || e.y !== from.y)) e.facing = { dx: e.x - from.x, dy: e.y - from.y };
         },
 
         archer(state, e, dist) {
@@ -235,7 +241,8 @@
     // Stunned enemies skip their action and lose any announced move. Stops when the player dies.
     SV.enemiesAct = function (state) {
         const p = state.player;
-        const dist = SV.distanceMap(state.map, p.x, p.y, false);
+        // Routes avoid dangerous spikes, so enemies walk around them instead of freezing behind them.
+        const dist = SV.distanceMap(state.map, p.x, p.y, false, (x, y) => spikeDanger(state, x, y));
         for (const e of state.enemies.slice()) {
             if (!state.enemies.includes(e)) continue;
             if (e.stunned > 0) {

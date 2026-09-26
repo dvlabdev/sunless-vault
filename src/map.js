@@ -61,7 +61,8 @@
 
     // Breadth-first search: steps from (sx, sy) to every tile; -1 = unreachable.
     // passDoors = treat locked doors as open (used by floor generation).
-    SV.distanceMap = function (map, sx, sy, passDoors) {
+    // avoid(x, y) = extra tiles to route around (enemies avoid dangerous spikes).
+    SV.distanceMap = function (map, sx, sy, passDoors, avoid) {
         const w = map.width;
         const dist = new Array(w * map.height).fill(-1);
         const queue = [sy * w + sx];
@@ -75,7 +76,7 @@
                 const ny = y + dy;
                 const n = ny * w + nx;
                 const passable = SV.isWalkable(map, nx, ny) || (passDoors && SV.tileAt(map, nx, ny) === DOOR);
-                if (!passable || dist[n] !== -1) continue;
+                if (!passable || dist[n] !== -1 || (avoid && avoid(nx, ny))) continue;
                 dist[n] = dist[i] + 1;
                 queue.push(n);
             }
