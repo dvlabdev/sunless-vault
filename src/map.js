@@ -15,18 +15,19 @@
 
     // One entry per floor, from floor 1 upward to the last floor before the Vault.
     // Sizes include the outer walls. special: null | 'ambush' | 'corridor' | 'cavern'.
-    // loot = loose items, barrels = explosive barrels, closet = locked treasure closet + key.
+    // loot = loose items, barrels = explosive barrels, closet = locked treasure closet + key,
+    // traps = spikes (timed ones from floor 4).
     SV.FLOOR_PLAN = [
-        { width: 9,  height: 9,  enemyBudget: 3,  special: null,       loot: 1, barrels: 0, closet: false },
-        { width: 11, height: 11, enemyBudget: 4,  special: null,       loot: 1, barrels: 1, closet: true },
-        { width: 13, height: 11, enemyBudget: 5,  special: null,       loot: 2, barrels: 1, closet: false },
-        { width: 15, height: 15, enemyBudget: 6,  special: null,       loot: 2, barrels: 2, closet: true },
-        { width: 9,  height: 9,  enemyBudget: 6,  special: 'ambush',   loot: 1, barrels: 2, closet: false },
-        { width: 15, height: 15, enemyBudget: 8,  special: null,       loot: 2, barrels: 2, closet: true },
-        { width: 17, height: 7,  enemyBudget: 8,  special: 'corridor', loot: 2, barrels: 2, closet: false },
-        { width: 15, height: 15, enemyBudget: 10, special: null,       loot: 2, barrels: 3, closet: true },
-        { width: 13, height: 13, enemyBudget: 10, special: null,       loot: 2, barrels: 2, closet: false },
-        { width: 17, height: 17, enemyBudget: 13, special: 'cavern',   loot: 3, barrels: 4, closet: true },
+        { width: 9,  height: 9,  enemyBudget: 3,  special: null,       loot: 1, barrels: 0, closet: false, traps: 0 },
+        { width: 11, height: 11, enemyBudget: 4,  special: null,       loot: 1, barrels: 1, closet: true,  traps: 1 },
+        { width: 13, height: 11, enemyBudget: 5,  special: null,       loot: 2, barrels: 1, closet: false, traps: 2 },
+        { width: 15, height: 15, enemyBudget: 6,  special: null,       loot: 2, barrels: 2, closet: true,  traps: 2 },
+        { width: 9,  height: 9,  enemyBudget: 6,  special: 'ambush',   loot: 1, barrels: 2, closet: false, traps: 2 },
+        { width: 15, height: 15, enemyBudget: 8,  special: null,       loot: 2, barrels: 2, closet: true,  traps: 3 },
+        { width: 17, height: 7,  enemyBudget: 8,  special: 'corridor', loot: 2, barrels: 2, closet: false, traps: 3 },
+        { width: 15, height: 15, enemyBudget: 10, special: null,       loot: 2, barrels: 3, closet: true,  traps: 4 },
+        { width: 13, height: 13, enemyBudget: 10, special: null,       loot: 2, barrels: 2, closet: false, traps: 3 },
+        { width: 17, height: 17, enemyBudget: 13, special: 'cavern',   loot: 3, barrels: 4, closet: true,  traps: 5 },
     ];
     SV.FLOOR_COUNT = SV.FLOOR_PLAN.length;
 
@@ -190,7 +191,16 @@
             barrels.push(spot);
         }
 
-        return { map, start, enemies, items, barrels };
+        // Spikes: fixed (always up) or, from floor 4, half of them timed with a random phase.
+        const traps = [];
+        for (let k = 0; k < (cfg.traps || 0); k++) {
+            const spot = take(2);
+            if (!spot) break;
+            const timed = depth >= 4 && SV.random(holder) < 0.5;
+            traps.push({ x: spot.x, y: spot.y, timed, phase: timed ? SV.randInt(holder, 0, 2) : 2 });
+        }
+
+        return { map, start, enemies, items, barrels, traps };
     }
 
     // A 2-tile closet against a random outer wall, walled in, with one locked door facing inward.

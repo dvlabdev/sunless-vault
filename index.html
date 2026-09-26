@@ -17,6 +17,7 @@
             <div class="stat-item" title="Keys"><span class="icon">⚷</span><span id="keys-value" class="value">0</span></div>
             <button id="potion-button" class="hud-button" type="button" title="Drink a potion (P)"><span class="icon">!</span><span id="potions-value">0</span></button>
             <button id="bomb-button" class="hud-button" type="button" title="Use a bomb (B)"><span class="icon">*</span><span id="bombs-value">0</span></button>
+            <button id="knife-button" class="hud-button" type="button" title="Throw a knife (Shift+direction, or T then a direction)"><span class="icon">†</span><span id="knives-value">0</span></button>
             <div id="turn-item" class="stat-item" title="Turn"><span class="icon">⧗</span><span id="turn-value" class="value">0</span></div>
             <div id="debug-badge" class="stat-item" hidden>DEBUG</div>
             <button id="help-button" type="button" aria-label="Help">?</button>
@@ -48,6 +49,7 @@
                 <p><strong>Descend / new run:</strong> tap the screen</p>
                 <p><strong>Drink potion:</strong> the ! button</p>
                 <p><strong>Use bomb:</strong> the * button (hits all around you, not you)</p>
+                <p><strong>Throw a knife:</strong> the † button, then tap a direction</p>
                 <p><strong>Weapon details:</strong> tap the weapon</p>
             </div>
 
@@ -58,12 +60,15 @@
                 <p><strong>Descend / new run:</strong> Enter</p>
                 <p><strong>Drink potion:</strong> P, or the ! button</p>
                 <p><strong>Use bomb:</strong> B, or the * button (hits all around you, not you)</p>
+                <p><strong>Throw a knife:</strong> Shift+direction, or T then a direction (Esc cancels)</p>
                 <p><strong>Weapon details:</strong> I, or click the weapon</p>
                 <p><strong>New game:</strong> R &nbsp; <strong>Help:</strong> ? or H</p>
             </div>
 
             <p class="muted">Walk into an enemy to attack it. Damage is fixed: red pips show enemy HP. Find the stairs (&gt;) to descend, and reach the Vault below floor 10.</p>
             <p class="muted">Gold tiles show where your weapon reaches; bright gold = what your attack would hit now. Gold HP pips = damage you'd deal (all gold: it dies).</p>
+            <p class="muted">A red dot on you or next to you = you get hurt if you end your turn there. A red ! means an enemy will make a big move next turn: archers a shoot along their red line, chargers C run down their dashed line, bombers x explode in the red 3×3. Slimes s split when hit; shieldbearers S block hits from the side of their shield bar.</p>
+            <p class="muted">Knives † deal 1 damage and land where they stop: pick them up again. Spikes ^: red = up (2 damage if you step on), orange = rising at the end of this turn, grey = down (safe).</p>
             <p class="muted">Step on items to pick them up. Weapons swap: sword / hits 1 tile; spear ↑ hits 2 in a line, and stepping toward an enemy 2 tiles away strikes it; axe Y hits all 8 around (−1 damage), and waiting swings it; hammer T knocks back.</p>
             <p class="muted">Kick a barrel O by walking into it: it rolls until it hits something and explodes (3×3). The shaded path shows where; red means you're in the blast. A key ⚷ opens a locked door +.</p>
             <label class="help-option"><input id="hints-toggle" type="checkbox" checked> Show hints (what you can do now)</label>

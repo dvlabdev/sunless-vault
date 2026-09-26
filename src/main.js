@@ -5,7 +5,7 @@
     const SV = window.SV = window.SV || {};
 
     const SAVE_KEY = 'sunless-vault-save';
-    const SAVE_VERSION = 2;          // bump whenever the shape of `state` changes
+    const SAVE_VERSION = 3;          // bump whenever the shape of `state` changes
     const HELP_SEEN_KEY = 'sunless-vault-help-seen';
     const HINTS_KEY = 'sunless-vault-hints';
     const REST_HEAL = 3;             // HP recovered between floors
@@ -27,6 +27,7 @@
     const weaponButton = document.getElementById('weapon-button');
     const potionButton = document.getElementById('potion-button');
     const bombButton = document.getElementById('bomb-button');
+    const knifeButton = document.getElementById('knife-button');
 
     let state = null;
     let inputLockedUntil = 0; // brief pause after screen changes, so a held key or double tap doesn't skip them
@@ -53,6 +54,7 @@
             enemies: [],
             items: [],
             barrels: [],
+            traps: [],
             log: [],
         };
         SV.log(s, `A new descent begins. Seed ${seed}.`, 'system');
@@ -88,8 +90,11 @@
         state.enemies = floor.enemies.map(e => SV.makeEnemy(state, e.type, e.x, e.y));
         state.items = floor.items.map(i => SV.makeItem(state, i.kind, i.x, i.y));
         state.barrels = floor.barrels.map(b => SV.makeBarrel(state, b.x, b.y));
+        state.traps = floor.traps.map(t => Object.assign({}, t));
         state.player.x = floor.start.x;
         state.player.y = floor.start.y;
+        state.enemies.forEach(e => { if (e.facing) SV.faceToward(e, state.player.x, state.player.y); });
+        SV.aiming = false;
         state.mode = 'floor';
         SV.log(state, `Floor ${node.depth}. Find the stairs (>).`, 'system');
         if (node.floor.special === 'ambush') SV.log(state, 'Something is waiting for you here...', 'combat-enemy');
@@ -105,6 +110,8 @@
         state.enemies = [];
         state.items = [];
         state.barrels = [];
+        state.traps = [];
+        SV.aiming = false;
         const next = currentNode();
         next.status = 'current';
 
@@ -202,38 +209,47 @@
         p.x = x;
         p.y = y;
         pickUp();
+        SV.enterTile(state, x, y); // raised spikes
     }
 
-    // Stepping onto an item picks it up. Weapons swap: the old one stays on the floor.
+    // Stepping onto a tile picks up everything on it. Weapons swap: the old one stays on the floor.
     function pickUp() {
         const p = state.player;
-        const item = SV.itemAt(state, p.x, p.y);
-        if (!item) return;
-
-        if (SV.WEAPONS[item.kind]) {
-            if (item.kind === p.weapon) return;
-            const old = p.weapon;
-            p.weapon = item.kind;
-            item.kind = old;
-            SV.log(state, `You take the ${p.weapon} and drop the ${old}.`, 'item');
-            describeWeapon();
-            return;
+        let swapped = false;
+        for (const item of state.items.filter(i => i.x === p.x && i.y === p.y)) {
+            if (SV.WEAPONS[item.kind]) {
+                if (swapped || item.kind === p.weapon) continue;
+                const old = p.weapon;
+                p.weapon = item.kind;
+                item.kind = old;
+                swapped = true;
+                SV.log(state, `You take the ${p.weapon} and drop the ${old}.`, 'item');
+                describeWeapon();
+                continue;
+            }
+            state.items = state.items.filter(i => i !== item);
+            collect(item.kind);
         }
+    }
 
-        state.items = state.items.filter(i => i !== item);
-        if (item.kind === 'potion') {
+    function collect(kind) {
+        const p = state.player;
+        if (kind === 'knife') {
+            p.knives++;
+            SV.log(state, 'You pick up a knife.', 'item');
+        } else if (kind === 'potion') {
             p.potions++;
             SV.log(state, 'You pick up a potion.', 'item');
-        } else if (item.kind === 'bomb') {
+        } else if (kind === 'bomb') {
             p.bombs++;
             SV.log(state, 'You pick up a bomb.', 'item');
-        } else if (item.kind === 'key') {
+        } else if (kind === 'key') {
             p.keys++;
             SV.log(state, 'You pick up a key.', 'item');
-        } else if (item.kind === 'whetstone') {
+        } else if (kind === 'whetstone') {
             p.atk++;
-            SV.log(state, 'A whetstone! Your attack rises to ' + p.atk + '.', 'item');
-        } else if (item.kind === 'heart') {
+            SV.log(state, `A whetstone! Your attack rises to ${p.atk}.`, 'item');
+        } else if (kind === 'heart') {
             p.maxHp += HEART_BONUS;
             p.hp += HEART_BONUS;
             SV.log(state, `A heart! Max HP +${HEART_BONUS}.`, 'item');
@@ -252,8 +268,10 @@
     function finishTurn() {
         const p = state.player;
         state.turn++;
+        SV.aiming = false;
 
-        // Your own action can kill you (an explosion or impact next to you).
+        // Your own action can kill you (an explosion, impact or spikes).
+        SV.resolveSplits(state);
         if (p.hp <= 0) return die();
 
         // Stairs end the floor immediately: enemies don't get a last move.
@@ -264,12 +282,38 @@
 
         // 3. Enemies (stops as soon as the player dies)
         SV.enemiesAct(state);
+        SV.resolveSplits(state);
         if (p.hp <= 0) return die();
 
-        // 4. Environment effects: none yet (traps and status ticks arrive in Phase 3).
+        // 4. Environment: timed spikes move; rising spikes hurt whoever stands on them.
+        SV.tickTraps(state);
+        SV.resolveSplits(state);
+        if (p.hp <= 0) return die();
 
         // 5-6. Autosave and redraw
         saveGame();
+        render();
+    }
+
+    // Knives: Shift+direction, T then a direction, or the knife button then a tap.
+    function throwKnife(dx, dy) {
+        SV.aiming = false;
+        if (state.player.knives === 0) {
+            SV.log(state, 'You have no knives.', 'system');
+            render();
+            return;
+        }
+        if (SV.throwKnife(state, dx, dy)) finishTurn();
+        else render(); // no room: no turn spent
+    }
+
+    function toggleAiming() {
+        if (state.mode !== 'floor') return;
+        if (!SV.aiming && state.player.knives === 0) {
+            SV.log(state, 'You have no knives.', 'system');
+        } else {
+            SV.aiming = !SV.aiming;
+        }
         render();
     }
 
@@ -375,9 +419,22 @@
         }
 
         if (state.mode === 'floor') {
-            if (KEY_DIRS[key]) {
+            const dir = KEY_DIRS[key];
+            // Knives: Shift+direction, or T (aim) then a direction; T/Esc cancels aiming.
+            if (dir && (e.shiftKey || SV.aiming)) {
                 e.preventDefault();
-                playerAction(KEY_DIRS[key][0], KEY_DIRS[key][1]);
+                throwKnife(dir[0], dir[1]);
+                return;
+            }
+            if (key === 't' || (key === 'Escape' && SV.aiming)) {
+                e.preventDefault();
+                toggleAiming();
+                return;
+            }
+            SV.aiming = false; // any other action cancels aiming
+            if (dir) {
+                e.preventDefault();
+                playerAction(dir[0], dir[1]);
             } else if (key === ' ') {
                 e.preventDefault();
                 playerAction(0, 0);
@@ -411,7 +468,12 @@
             const py = (e.clientY - rect.top) * (canvas.height / rect.height);
             const dx = Math.floor((px - SV.view.ox) / SV.view.tile) - state.player.x;
             const dy = Math.floor((py - SV.view.oy) / SV.view.tile) - state.player.y;
-            if (dx === 0 && dy === 0) playerAction(0, 0);
+            if (SV.aiming) {
+                // Aiming a knife: throw toward the tap (tapping yourself cancels).
+                if (dx === 0 && dy === 0) toggleAiming();
+                else if (Math.abs(dx) >= Math.abs(dy)) throwKnife(Math.sign(dx), 0);
+                else throwKnife(0, Math.sign(dy));
+            } else if (dx === 0 && dy === 0) playerAction(0, 0);
             else if (Math.abs(dx) >= Math.abs(dy)) playerAction(Math.sign(dx), 0);
             else playerAction(0, Math.sign(dy));
         }
@@ -458,11 +520,17 @@
     });
     potionButton.addEventListener('click', () => {
         potionButton.blur();
+        SV.aiming = false;
         if (state.mode === 'floor' && performance.now() >= inputLockedUntil) drinkPotion();
     });
     bombButton.addEventListener('click', () => {
         bombButton.blur();
+        SV.aiming = false;
         if (state.mode === 'floor' && performance.now() >= inputLockedUntil) throwBomb();
+    });
+    knifeButton.addEventListener('click', () => {
+        knifeButton.blur();
+        if (performance.now() >= inputLockedUntil) toggleAiming();
     });
 
     // ---- Save / load (any storage failure = play without saving) ----------
@@ -520,6 +588,7 @@
             else state = newRun(SV.newSeed());
         }
 
+        SV.aiming = false; // knife aim mode (UI only, never saved)
         SV.inputMode = null;
         setInputMode(window.matchMedia('(hover: none) and (pointer: coarse)').matches ? 'touch' : 'keys');
         SV.hintsOn = storageGet(HINTS_KEY) !== 'off';

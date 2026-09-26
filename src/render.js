@@ -13,7 +13,18 @@
         rat:    { glyph: 'r', color: '#c9a27e' },
         ghoul:  { glyph: 'g', color: '#7fb77e' },
         brute:  { glyph: 'B', color: '#e67e22' },
+        slime:        { glyph: 's', color: '#48c9b0' },
+        slimelet:     { glyph: 's', color: '#48c9b0', scale: 0.5 },
+        archer:       { glyph: 'a', color: '#bb8fce' },
+        charger:      { glyph: 'C', color: '#cd6155' },
+        bomber:       { glyph: 'x', color: '#f5b041' },
+        shieldbearer: { glyph: 'S', color: '#aab7b8' },
         barrel: { glyph: 'O', color: '#d35400' },
+        // spikes: raised / rising at the end of this turn / down
+        spikesUp:     { glyph: '^', color: '#e74c3c' },
+        spikesRising: { glyph: '^', color: '#e67e22' },
+        spikesDown:   { glyph: '^', color: '#4d5566' },
+        knife:     { glyph: '†', color: '#d6eaf8' },
         // items
         potion:    { glyph: '!', color: '#ff6b9d' },
         bomb:      { glyph: '*', color: '#e74c3c' },
@@ -49,6 +60,8 @@
         bombs: document.getElementById('bombs-value'),
         potionButton: document.getElementById('potion-button'),
         bombButton: document.getElementById('bomb-button'),
+        knives: document.getElementById('knives-value'),
+        knifeButton: document.getElementById('knife-button'),
         turn: document.getElementById('turn-value'),
         debug: document.getElementById('debug-badge'),
     };
@@ -60,6 +73,7 @@
     // UI preferences set by main.js (not game state): how controls are worded, hint line on/off.
     SV.inputMode = 'keys';
     SV.hintsOn = true;
+    SV.aiming = false; // knife aim mode
 
     // Canvas backing store = CSS size x devicePixelRatio, so it's sharp on every screen.
     SV.resizeCanvas = function () {
@@ -134,10 +148,17 @@
             }
         }
 
-        if (analysis) drawThreat(state, analysis);
+        if (analysis) {
+            drawThreat(state, analysis);
+            drawAnnounced(analysis);
+        }
         const incoming = analysis ? analysis.incoming : new Map();
 
-        // Items under everything else, then barrels, enemies (dimmed while stunned), player.
+        // Spikes and items under everything else, then barrels, enemies (dimmed while stunned), player.
+        for (const trap of state.traps) {
+            const look = SV.spikesUp(trap) ? A.spikesUp : trap.phase === 1 ? A.spikesRising : A.spikesDown;
+            drawGlyph(look.glyph, look.color, ox + trap.x * tile, oy + trap.y * tile, tile);
+        }
         for (const item of state.items) {
             drawGlyph(A[item.kind].glyph, A[item.kind].color, ox + item.x * tile, oy + item.y * tile, tile);
         }
@@ -147,17 +168,98 @@
         for (const e of state.enemies) {
             const px = ox + e.x * tile;
             const py = oy + e.y * tile;
-            drawGlyph(A[e.type].glyph, e.stunned > 0 ? COLORS.muted : A[e.type].color, px, py, tile);
+            const look = A[e.type];
+            if (look.scale) setFont(tile * 0.75 * look.scale, true);
+            drawGlyph(look.glyph, e.stunned > 0 ? COLORS.muted : look.color, px, py, tile);
+            if (look.scale) setFont(tile * 0.75, true);
             drawPips(e.hp, SV.ENEMY_TYPES[e.type].hp, px, py, tile, incoming.get(e) || 0);
+            if (e.facing) drawShield(e.facing, px, py, tile);
+            if (e.intent) drawAlert(px, py, tile);
         }
 
         const p = state.player;
         drawGlyph(A.player.glyph, A.player.color, ox + p.x * tile, oy + p.y * tile, tile);
+
+        if (analysis) drawSafetyMarkers(state, analysis);
+    }
+
+    // Enemy side, big moves only: archer shots (thin line), charges (dashed line), lit bombers (tint).
+    function drawAnnounced(a) {
+        const { tile, ox, oy } = SV.view;
+        const centre = t => ({ x: ox + t.x * tile + tile / 2, y: oy + t.y * tile + tile / 2 });
+        for (const threat of a.announced) {
+            if (threat.kind === 'blast') {
+                threat.tiles.forEach(t => shadeTile(t.x, t.y, 'rgba(231, 76, 60, 0.16)'));
+                continue;
+            }
+            if (threat.tiles.length === 0) continue;
+            const start = centre(threat.from);
+            const end = centre(threat.tiles[threat.tiles.length - 1]);
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.85)';
+            ctx.lineWidth = Math.max(1, Math.round(tile / (threat.kind === 'charge' ? 10 : 18)));
+            ctx.setLineDash(threat.kind === 'charge' ? [tile / 5, tile / 7] : []);
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Arrowhead where it stops.
+            const dx = Math.sign(end.x - start.x);
+            const dy = Math.sign(end.y - start.y);
+            const s = tile * 0.22;
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.9)';
+            ctx.beginPath();
+            ctx.moveTo(end.x + dx * s, end.y + dy * s);
+            ctx.lineTo(end.x - dx * s - dy * s, end.y - dy * s + dx * s);
+            ctx.lineTo(end.x - dx * s + dy * s, end.y - dy * s - dx * s);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+
+    // Red dot on your tile and the 4 tiles you can step to, when ending your turn there would hurt.
+    function drawSafetyMarkers(state, a) {
+        const p = state.player;
+        const map = state.map;
+        const { tile, ox, oy } = SV.view;
+        const spots = [[0, 0]].concat(SV.DIRS);
+        ctx.fillStyle = COLORS.red;
+        for (const [dx, dy] of spots) {
+            const x = p.x + dx;
+            const y = p.y + dy;
+            const own = dx === 0 && dy === 0;
+            if (!own && (!SV.isWalkable(map, x, y) || SV.enemyAt(state, x, y) || SV.barrelAt(state, x, y))) continue;
+            const trap = SV.trapAt(state, x, y);
+            const unsafe = a.danger.has(y * map.width + x) || (!own && trap && SV.spikesUp(trap));
+            if (!unsafe) continue;
+            ctx.beginPath();
+            ctx.arc(ox + x * tile + tile / 2, oy + y * tile + tile * 0.86, Math.max(2, tile / 10), 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
     function drawGlyph(glyph, color, px, py, tile) {
         ctx.fillStyle = color;
         ctx.fillText(glyph, px + tile / 2, py + tile / 2 + tile * 0.04);
+    }
+
+    // Shieldbearer: a bar on the side it faces (hits from that side are blocked).
+    function drawShield(facing, px, py, tile) {
+        const t = Math.max(2, Math.round(tile / 8));
+        const m = Math.round(tile * 0.08);
+        ctx.fillStyle = '#d0d3d4';
+        if (facing.dx === 1) ctx.fillRect(px + tile - t - m, py + tile * 0.2, t, tile * 0.6);
+        else if (facing.dx === -1) ctx.fillRect(px + m, py + tile * 0.2, t, tile * 0.6);
+        else if (facing.dy === 1) ctx.fillRect(px + tile * 0.2, py + tile - t - m, tile * 0.6, t);
+        else ctx.fillRect(px + tile * 0.2, py + tile * 0.2, tile * 0.6, t);
+    }
+
+    // Red "!" in the corner: this enemy announced its next move (aim, charge, fuse).
+    function drawAlert(px, py, tile) {
+        setFont(tile * 0.4, true);
+        ctx.fillStyle = COLORS.red;
+        ctx.fillText('!', px + tile * 0.85, py + tile * 0.25);
+        setFont(tile * 0.75, true);
     }
 
     // Small HP squares above an enemy, so fixed damage is easy to plan around.
@@ -174,60 +276,136 @@
         }
     }
 
-    // What your next key press could do, shared by the threat preview and the hint line.
-    // reach  = every tile the weapon can reach from here (faint gold)
+    // What your next key press could do (gold) and what the enemies will do (red),
+    // shared by the preview and the hint line.
+    // reach  = every tile the weapon (or, while aiming, a knife) can reach (faint gold)
     // armed  = tiles an attack would hit right now (bright gold); incoming = enemy -> damage
-    // bump / lunge = enemies you can attack by moving (spear lunges step first); spin = axe can swing
+    // bump / lunge = enemies you can attack by moving; spin = axe can swing; shielded = attacks a shield would block
     // barrels = [{ barrel, kind: 'armed' | 'kick' | 'diagonal', dx, dy, stop, dangerous }]
+    // danger = tiles where you'd get hurt if you end your turn there; warnings = hint texts about them
     function analyzeThreat(state) {
         const p = state.player;
         const map = state.map;
         const weapon = SV.WEAPONS[p.weapon];
         const pattern = SV.PATTERNS[weapon.pattern];
-        const damage = SV.weaponDamage(p);
         const key = (x, y) => y * map.width + x;
         const near = (x, y) => Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1;
-        const a = { reach: new Set(), armed: new Set(), incoming: new Map(), bump: [], lunge: [], spin: false, barrels: [] };
-        const arm = (tiles) => {
+        const a = {
+            reach: new Set(), armed: new Set(), incoming: new Map(), bump: [], lunge: [], spin: false,
+            shielded: [], barrels: [], danger: new Set(), warnings: [], knifeTargets: [], announced: [],
+        };
+        const arm = (tiles, from, damage) => {
             for (const t of tiles) {
                 if (!SV.isWalkable(map, t.x, t.y) || a.armed.has(key(t.x, t.y))) continue;
                 a.armed.add(key(t.x, t.y));
                 const enemy = SV.enemyAt(state, t.x, t.y);
-                if (enemy) a.incoming.set(enemy, damage);
+                if (!enemy) continue;
+                if (SV.isShielded(enemy, from.x, from.y)) a.shielded.push(enemy);
+                else a.incoming.set(enemy, damage);
             }
         };
 
-        for (const [dx, dy] of SV.DIRS) {
-            const tiles = pattern(p.x, p.y, dx, dy);
-            tiles.forEach(t => { if (SV.isWalkable(map, t.x, t.y)) a.reach.add(key(t.x, t.y)); });
-            const adjacent = SV.enemyAt(state, p.x + dx, p.y + dy);
-            const far = SV.enemyAt(state, p.x + 2 * dx, p.y + 2 * dy);
-            if (adjacent) {
-                a.bump.push(adjacent);
-                arm(tiles);
-            } else if (weapon.lunge && far && !SV.isBlocked(state, p.x + dx, p.y + dy)) {
-                a.lunge.push(far);
-                arm(pattern(p.x + dx, p.y + dy, dx, dy));
+        if (SV.aiming) {
+            // Knife flight lines in the 4 directions.
+            for (const [dx, dy] of SV.DIRS) {
+                const stop = SV.traceProjectile(state, p.x, p.y, dx, dy, Infinity);
+                for (let i = 1; i < stop.distance; i++) a.reach.add(key(p.x + dx * i, p.y + dy * i));
+                if (!stop.hit) {
+                    if (stop.distance > 0) a.reach.add(key(stop.x, stop.y));
+                    continue;
+                }
+                arm([stop], p, 1);
+                const barrel = SV.barrelAt(state, stop.x, stop.y);
+                if (barrel) a.barrels.push({ barrel, kind: 'armed', dangerous: near(stop.x, stop.y) });
             }
-        }
-        if (weapon.spin && SV.enemyAround(state)) {
-            a.spin = true;
-            arm(pattern(p.x, p.y, 0, 0));
+        } else {
+            const damage = SV.weaponDamage(p);
+            for (const [dx, dy] of SV.DIRS) {
+                const tiles = pattern(p.x, p.y, dx, dy);
+                tiles.forEach(t => { if (SV.isWalkable(map, t.x, t.y)) a.reach.add(key(t.x, t.y)); });
+                const adjacent = SV.enemyAt(state, p.x + dx, p.y + dy);
+                const far = SV.enemyAt(state, p.x + 2 * dx, p.y + 2 * dy);
+                if (adjacent) {
+                    a.bump.push(adjacent);
+                    arm(tiles, p, damage);
+                } else if (weapon.lunge && far && !SV.isBlocked(state, p.x + dx, p.y + dy)) {
+                    a.lunge.push(far);
+                    arm(pattern(p.x + dx, p.y + dy, dx, dy), { x: p.x + dx, y: p.y + dy }, damage);
+                }
+                // Enemies a knife could reach from here (for the hint).
+                const flight = SV.traceProjectile(state, p.x, p.y, dx, dy, Infinity);
+                const target = flight.hit && flight.distance > 1 ? SV.enemyAt(state, flight.x, flight.y) : null;
+                if (target && !SV.isShielded(target, p.x, p.y)) a.knifeTargets.push(target);
+            }
+            if (weapon.spin && SV.enemyAround(state)) {
+                a.spin = true;
+                arm(pattern(p.x, p.y, 0, 0), p, damage);
+            }
+
+            for (const b of state.barrels) {
+                const dx = b.x - p.x;
+                const dy = b.y - p.y;
+                if (a.armed.has(key(b.x, b.y)) && near(b.x, b.y)) {
+                    a.barrels.push({ barrel: b, kind: 'armed', dangerous: true }); // your attack would set it off
+                } else if (Math.abs(dx) + Math.abs(dy) === 1) {
+                    const stop = SV.rollDestination(state, b, dx, dy);
+                    a.barrels.push({ barrel: b, kind: 'kick', dx, dy, stop, dangerous: near(stop.x, stop.y) });
+                } else if (near(b.x, b.y)) {
+                    a.barrels.push({ barrel: b, kind: 'diagonal', dangerous: true }); // a bomb would catch you
+                }
+            }
         }
 
-        for (const b of state.barrels) {
-            const dx = b.x - p.x;
-            const dy = b.y - p.y;
-            if (a.armed.has(key(b.x, b.y)) && near(b.x, b.y)) {
-                a.barrels.push({ barrel: b, kind: 'armed', dangerous: true }); // your attack would set it off
-            } else if (Math.abs(dx) + Math.abs(dy) === 1) {
-                const stop = SV.rollDestination(state, b, dx, dy);
-                a.barrels.push({ barrel: b, kind: 'kick', dx, dy, stop, dangerous: near(stop.x, stop.y) });
-            } else if (near(b.x, b.y)) {
-                a.barrels.push({ barrel: b, kind: 'diagonal', dangerous: true }); // a bomb would catch you
-            }
-        }
+        analyzeDanger(state, a);
         return a;
+    }
+
+    // Enemy side: every tile where you'd get hurt if you end your turn there.
+    function analyzeDanger(state, a) {
+        const p = state.player;
+        const map = state.map;
+        const key = (x, y) => y * map.width + x;
+        const mark = (x, y) => { if (SV.isWalkable(map, x, y)) a.danger.add(key(x, y)); };
+        const hitsYou = (tiles) => tiles.some(t => t.x === p.x && t.y === p.y);
+        // Straight line from (x, y) until a wall/door, including the first thing it meets.
+        const line = (x, y, dx, dy, range) => {
+            const tiles = [];
+            for (let i = 1; i <= range; i++) {
+                const nx = x + dx * i;
+                const ny = y + dy * i;
+                if (!SV.isWalkable(map, nx, ny)) break;
+                tiles.push({ x: nx, y: ny });
+                if (SV.isBlocked(state, nx, ny)) break;
+            }
+            return tiles;
+        };
+
+        for (const e of state.enemies) {
+            if (e.stunned > 0) continue;
+            const type = SV.ENEMY_TYPES[e.type];
+            let tiles = [];
+            if (type.ai === 'melee') {
+                tiles = SV.DIRS.map(([dx, dy]) => ({ x: e.x + dx, y: e.y + dy }));
+            } else if (e.intent && e.intent.kind === 'aim') {
+                tiles = line(e.x, e.y, e.intent.dx, e.intent.dy, type.range);
+                a.announced.push({ kind: 'aim', from: e, tiles });
+                if (hitsYou(tiles)) a.warnings.push('The archer is aiming at you: leave the red line');
+            } else if (e.intent && e.intent.kind === 'charge') {
+                tiles = line(e.x, e.y, e.intent.dx, e.intent.dy, Infinity);
+                a.announced.push({ kind: 'charge', from: e, tiles });
+                if (hitsYou(tiles)) a.warnings.push('The charger will charge: sidestep out of the red lane');
+            } else if (e.intent && e.intent.kind === 'fuse') {
+                for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) tiles.push({ x: e.x + ox, y: e.y + oy });
+                a.announced.push({ kind: 'blast', tiles });
+                if (hitsYou(tiles)) a.warnings.push('The bomber is lit: get out of the red 3×3');
+            }
+            tiles.forEach(t => mark(t.x, t.y));
+        }
+        for (const trap of state.traps) {
+            if (!trap.timed || trap.phase !== 1) continue;
+            mark(trap.x, trap.y);
+            if (trap.x === p.x && trap.y === p.y) a.warnings.push('Spikes rise under you at the end of this turn: move!');
+        }
     }
 
     // Planning aids, drawn under the entities (see analyzeThreat).
@@ -254,10 +432,14 @@
 
         const p = state.player;
         const name = e => SV.ENEMY_TYPES[e.type].name;
-        const hints = [];
-        if (a.bump.length > 0) hints.push(touch ? `Tap the ${name(a.bump[0])} to attack` : `Move into the ${name(a.bump[0])} to attack`);
-        if (a.lunge.length > 0) hints.push(touch ? `Tap toward the ${name(a.lunge[0])}: step and strike` : `Move toward the ${name(a.lunge[0])}: step and strike`);
-        if (a.spin) hints.push(touch ? 'Tap yourself to swing the axe' : 'Space: swing the axe');
+        if (SV.aiming) return touch ? 'Tap a direction to throw · tap † or yourself to cancel' : 'Direction: throw the knife · T or Esc to cancel';
+
+        // Warnings first: something will hit you if you stay.
+        const hints = a.warnings.slice(0, 2);
+        if (hints.length < 2 && a.shielded.length > 0) hints.push(`The ${name(a.shielded[0])}'s shield blocks the front: hit it from the side, or use barrels/bombs`);
+        if (hints.length < 2 && a.bump.length > 0 && a.incoming.size > 0) hints.push(touch ? `Tap the ${name(a.bump[0])} to attack` : `Move into the ${name(a.bump[0])} to attack`);
+        if (hints.length < 2 && a.lunge.length > 0) hints.push(touch ? `Tap toward the ${name(a.lunge[0])}: step and strike` : `Move toward the ${name(a.lunge[0])}: step and strike`);
+        if (hints.length < 2 && a.spin) hints.push(touch ? 'Tap yourself to swing the axe' : 'Space: swing the axe');
 
         const kick = a.barrels.find(i => i.kind === 'kick');
         if (hints.length < 2 && kick) {
@@ -268,6 +450,9 @@
             if (door) hints.push(p.keys > 0 ? (touch ? 'Tap the door to unlock it' : 'Move into the door to unlock it') : 'Find the key ⚷ to open this door');
         }
         if (hints.length < 2 && p.potions > 0 && p.hp * 3 <= p.maxHp) hints.push(touch ? 'HP low: tap ! to drink' : 'HP low: press P to drink');
+        if (hints.length === 0 && p.knives > 0 && a.knifeTargets.length > 0) {
+            hints.push(touch ? `Tap † then toward the ${name(a.knifeTargets[0])} to throw a knife` : `Shift+direction: throw a knife at the ${name(a.knifeTargets[0])}`);
+        }
         if (hints.length === 0 && state.enemies.length === 0) hints.push('Floor clear: head for the stairs >');
         if (hints.length === 0) hints.push(touch ? 'Tap a tile to move · tap yourself to wait' : 'WASD/arrows to move · Space to wait');
         return hints.slice(0, 2).join(' · ');
@@ -411,6 +596,9 @@
         hud.bombs.textContent = String(p.bombs);
         hud.potionButton.disabled = state.mode !== 'floor' || p.potions === 0;
         hud.bombButton.disabled = state.mode !== 'floor' || p.bombs === 0;
+        hud.knives.textContent = String(p.knives);
+        hud.knifeButton.disabled = state.mode !== 'floor' || p.knives === 0;
+        hud.knifeButton.classList.toggle('active', !!SV.aiming);
         hud.turn.textContent = String(state.turn);
         hud.debug.hidden = !state.debug;
         hud.debug.textContent = state.godMode ? 'DEBUG·GOD' : 'DEBUG';

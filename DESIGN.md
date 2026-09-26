@@ -86,32 +86,43 @@
     | Axe | `Y` | All 8 tiles around you | −1 | **Spin:** waiting (Space / tap yourself) swings it if any enemy is among the 8 tiles; hits adjacent barrels too |
     | Hammer | `T` | The tile in front | 0 | Knockback 1 tile (§3.11) |
   - *Phase 2 — bomb:* instant and player-safe: a 3×3 explosion centred on the player that spares the player's tile. Barrels it sets off can still hurt you. `B` key or HUD button; stored as a counter.
-  - *Phase 3 — straight-line ranged:* Shift + direction (keyboard) or tap an enemy on the same row/column (mobile). The shot travels until it hits a wall or an enemy. Uses ammo. Ranged enemies (archers) show their aim line one turn before firing.
+  - *Phase 3a — throwing knives* `†`: ammo counter (start with 2; knife loot). Throw in a direction: **Shift + direction**, or **T** then a direction (T/Esc cancels); touch: the **† HUD button**, then tap a direction (tapping yourself or the button cancels). The knife flies until the next tile is a wall/door (lands on the last free tile) or holds something: 1 damage to it (shields block from the front; a barrel explodes — safe if it's ≥ 2 tiles away) and lands on that tile, to be picked up again. Throwing into an adjacent wall does nothing (no turn). While aiming, the 4 flight lines and their targets are previewed.
   - *Phase 3 (last) — free-aim targeting:* for thrown items/spells. Keyboard: a key opens a cursor on the nearest enemy, arrows move it, Enter confirms, Esc cancels. Mobile: tap the item button, tap a target tile, tap again to confirm. Limited range + line-of-sight check (shared with straight-line ranged and fog of war).
 
 ### 3.6 Enemy AI
-- Once per turn, compute a BFS "distance-to-player" map for the whole floor. Each enemy steps to the neighbouring tile with the lowest distance; if it's adjacent to the player, it attacks instead.
-- Enemies never share a tile and never step onto barrels. If the best tile is occupied, the enemy tries the next best or waits. Locked doors block their paths.
-- A stunned enemy skips its next action.
+- Once per turn, compute a BFS "distance-to-player" map for the whole floor. Walking enemies step to the neighbouring tile with the lowest distance.
+- Enemies never share a tile, never step onto barrels, raised spikes or spikes about to rise. If the best tile is occupied, the enemy tries the next best or waits. Locked doors block their paths. (Pushed or charging enemies can still end up on spikes.)
+- A stunned enemy skips its next action **and loses any announced move**.
+- Enemies act one by one over a snapshot of the list (a bomber can kill others mid-phase).
+- **Every big move is announced one turn ahead** (`intent`, red `!` on the enemy, red outline on the tiles it will hit). Fixed damage, no luck.
+
+| Enemy | Glyph | HP | Damage | Cost | From floor | Behaviour |
+|---|---|---|---|---|---|---|
+| Rat | `r` | 2 | 1 | 1 | 1 | Melee: attacks when orthogonally adjacent, otherwise walks toward you |
+| Ghoul | `g` | 4 | 2 | 2 | 3 | Melee |
+| Brute | `B` | 6 | 3 | 4 | 6 | Melee |
+| Slime | `s` | 4 | 1 | 3 | 2 | Melee. **Splits** when damaged but not killed: its remaining HP is shared by two slimelets (⌈r/2⌉ stays, ⌊r/2⌋ appears on the first free neighbour: up, right, down, left). Splits resolve after the current action. |
+| Slimelet | small `s` | ≤ 2 | 1 | — | never spawned | Melee, doesn't split |
+| Archer | `a` | 2 | 2 | 3 | 3 | Lined up with you (same row/column, ≤ 6 tiles, nothing in between) → **aims** (announced). Next turn **shoots** along that line: the arrow hits the first thing in it (you, an enemy, a barrel) even if you moved away. Never melees. |
+| Charger | `C` | 5 | 3 | 4 | 4 | Lined up (≤ 8, clear line) → **lowers its head** (announced). Next turn **charges** until blocked and hits what it runs into for 3 (barrel explodes; shields block from the front). Runs into a wall/door → 1 impact damage and stunned. |
+| Bomber | `x` | 2 | 3 (blast) | 3 | 5 | In the 8 tiles around you → **lights its fuse** (announced). Next turn **explodes** (normal explosion: 3×3, breaks inner walls, chains barrels, hurts everyone). Killed first = no explosion. |
+| Shieldbearer | `S` | 4 | 2 | 4 | 6 | Melee. **Faces you** (turns at the end of its action; bar drawn on the shield side) and **blocks weapon hits, knives, arrows and charges coming from the half it faces**. Explosions, impacts and spikes aren't blocked; hammer knockback still pushes it (and a wall behind it means impact + stun, then flank it). |
 
 ### 3.7 Turn Sequence
 1. Player inputs an action.
 2. Player action resolves (move, attack, push, open door, item). Invalid actions (walking into a wall) do not spend a turn. **If the action killed the player (an explosion or impact next to them), stop.** Stepping onto the stairs ends the floor immediately (enemies don't get a last move).
 3. Enemies act one by one. **After each enemy, check the player's HP; at 0, stop immediately.**
-4. Environment effects trigger (traps, status ticks).
+4. Environment effects: timed spikes advance one phase; spikes rising under someone deal 2.
 5. Autosave (§5).
+
+Slime splits resolve after steps 2, 3 and 4, each followed by a death check.
 6. Renderer redraws.
 
 ### 3.8 Progression & Items
-- **Player start:** 20 HP, 2 attack.
+- **Player start:** 20 HP, 2 attack, 2 knives.
 - **Resting:** reaching the stairs heals `REST_HEAL` (3) HP, up to max HP. (Was 6 in Phase 1; lowered together with ~25% higher enemy budgets after playtests showed the run was too easy.)
-- **Phase 1 enemies** (same behaviour, different stats; real archetypes come in Phase 3):
-  | Enemy | HP | Attack | Budget cost | From floor |
-  |---|---|---|---|---|
-  | Rat `r` | 2 | 1 | 1 | 1 |
-  | Ghoul `g` | 4 | 2 | 2 | 3 |
-  | Brute `B` | 6 | 3 | 4 | 6 |
-- **Items** are picked up by stepping on them. No equipment slots.
+- Enemy types and stats: §3.6.
+- **Items** are picked up by stepping on them (everything on the tile; items can share a tile). No equipment slots.
   | Item | Glyph | Effect |
   |---|---|---|
   | Potion | `!` | Counter. Drink: heal 8 HP |
@@ -119,8 +130,10 @@
   | Key | `⚷` | Counter, kept between floors. Opens one locked door `+` |
   | Whetstone | `≡` | +1 attack (permanent) |
   | Heart | `♥` | +4 max HP and heal 4 (permanent) |
+  | Knife | `†` | Counter. Thrown ammo (§3.5), lands where it stops |
   | Weapons | `/ ↑ Y T` | Swap with the held weapon |
-- **Counters shown in the HUD:** potions and bombs (tappable buttons), keys; ammo arrives with ranged attacks in Phase 3.
+- **Counters shown in the HUD:** potions, bombs and knives (tappable buttons), keys.
+- Loose loot weights: potion 5, bomb 3, knife 3, random weapon 1, heart 1 (floor 3+), whetstone 1 (floor 4+).
 - Difficulty rises with depth through the floor config (`enemyBudget`, size, `vision`, special floors).
 
 ### 3.9 Fog of War (Phase 3, per floor)
@@ -133,8 +146,12 @@
 - **Permadeath:** HP 0 → `dead` mode, save deleted, option to start a new run.
 - **Victory:** reaching the Vault → `won` mode, save deleted.
 
-### 3.11 Environment & Hazards (Phase 2)
-All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`, which hits whatever entity stands on a tile. Barrels, bombs, knockback and collisions all use it.
+### 3.11 Environment & Hazards (Phase 2–3a)
+All damage goes through one routine, `SV.damageAt(state, x, y, amount, source, from)`, which hits whatever entity stands on a tile. `from` (the attacker's or thrower's tile) is only passed by weapon hits, knives, arrows and charges, so shields can check it; explosions, impacts and spikes pass none and can't be blocked.
+- **Spikes** `^` (`state.traps: [{ x, y, timed, phase }]`, tiles stay walkable so they never block a path):
+  - Fixed spikes are always up. Timed spikes (from floor 4) cycle every turn: phase 0 down (grey, safe) → phase 1 down but **rising at the end of this turn** (orange, red outline) → phase 2 up (red).
+  - **Entering raised spikes: 2 damage. Spikes rising under someone: 2 damage.** Applies to the player and enemies (barrels ignore spikes).
+  - Placed on distinct main-area tiles ≥ 2 steps from the start; count per floor in `FLOOR_PLAN.traps` (0 on floor 1 … 5 on floor 10), 50% timed from floor 4 with a random starting phase.
 - **Explosive Barrels** `O`: destructible entities with 1 HP that block movement. Taking any damage makes them explode: 3 damage to every entity in the 3×3 around the barrel, and inner wall tiles in that 3×3 become floor.
   - **Kick & roll:** walking into a barrel kicks it (with any weapon): it rolls in a straight line until the next tile is blocked (wall, door, enemy, barrel), then explodes there. If it rolled at least 1 tile, you're outside the blast; if it was blocked right away, it explodes next to you. So barrels are a ranged weapon: line one up with enemies and kick. They can never permanently block a path.
   - Weapons only damage a barrel when you're right next to it (8 neighbours): the axe sweep does, the spear's second tile doesn't. Hammer-knocked enemies (impact), bombs and other explosions also set barrels off.
@@ -143,14 +160,14 @@ All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`,
   - Chain reactions use a queue: a barrel caught in a blast explodes after the current one, and each barrel explodes only once (no infinite loops).
 - **Push & Collision:** a pushed entity (e.g. Hammer knockback) moves 1 tile. If that tile holds a solid wall, a closed door or another entity, the push fails and:
   - The pushed entity takes 1 impact damage; if it hit another entity, that one takes 1 too (a barrel taking impact damage explodes).
-  - A surviving pushed enemy is stunned (`stunned: 1`, drawn dimmed) and skips its next action. If the player is ever stunned (only possible once enemies can push, Phase 3), the enemies act twice.
+  - A surviving pushed enemy is stunned (`stunned: 1`, drawn dimmed), skips its next action and loses any announced move. A successful push onto raised spikes hurts it. If the player is ever stunned (not possible yet), the enemies act twice.
 
 ## 4. Rendering & Layout
 
 ### 4.1 Layout: the board fills the screen
 - The canvas takes all space left after a thin HUD and is resized when the window changes size.
   - Landscape: board centered, HUD as a narrow column on the side.
-  - Portrait (phones): one-line HUD on top, board below.
+  - Portrait (phones): HUD on top, board below. On narrow phones the HUD may wrap to a second row (phones held upright have spare height) instead of hiding counters.
 - **Tile size** = the largest multiple of 16 that fits the board area for the current floor (minimum 16). The board is drawn centered. This keeps pixel art even at every size.
 - The canvas backing size is multiplied by `devicePixelRatio`, so it stays sharp on phones and high-DPI screens.
 - Floor size never depends on screen shape: the same floor is equally hard on phone and desktop.
@@ -160,7 +177,7 @@ All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`,
 - **Log:** only the last 2–3 messages, older ones fade out. No scrolling panel.
 - **Help:** `?` overlay replaces a permanent controls footer. It shows the controls for the current input device (touch list or key list), a **Show hints** checkbox and a **New game** button.
 - **Input mode** (UI only, not saved in `state`): starts as touch on devices without hover and with a coarse pointer, otherwise keys; switches to keys on any key press and to touch on any touch. Help and hints are worded accordingly.
-- **Hint line:** one line above the log with the 1–2 most useful things you can do right now, worded for touch or keys, in priority order: descend / new run (map and end screens) → attack available (bump, spear step-and-strike, axe spin) → kick an adjacent barrel (with a warning if it would blow up next to you) → unlock an adjacent door / find the key → drink a potion when HP ≤ 1/3 → "floor clear: head for the stairs" → how to move and wait. It reuses the threat-preview analysis, so both always agree. Can be turned off in the help screen (stored per browser).
+- **Hint line:** one line above the log with the 1–2 most useful things you can do right now, worded for touch or keys, in priority order: descend / new run (map and end screens) → knife aiming instructions (while aiming) → warnings when you stand in an announced threat (archer line, charge lane, lit bomber, rising spikes) → a shield blocking your attack → attack available (bump, spear step-and-strike, axe spin) → kick an adjacent barrel (with a warning if it would blow up next to you) → unlock an adjacent door / find the key → drink a potion when HP ≤ 1/3 → throw a knife at an enemy in line → "floor clear: head for the stairs" → how to move and wait. It reuses the threat-preview analysis, so both always agree. Can be turned off in the help screen (stored per browser).
 - **Weapon in the HUD:** name + damage (gold number); tappable for its description.
 
 ### 4.2b Threat preview (planning aid)
@@ -169,6 +186,12 @@ Positioning is the core strategy, so the board always shows what your next move 
 - **Bright gold:** tiles your next key press would hit right now: an enemy next to you (bump), a spear step-and-strike on an enemy 2 tiles away, or an axe spin when any enemy is among the 8 tiles.
 - **Gold HP pips:** the damage an enemy would take from that attack; all gold = it dies.
 - **Barrels:** next to you in a straight line → its roll path and the 3×3 blast where it would stop (orange; red if you'd be inside). Diagonally next to you → red blast zone (a bomb would catch you). Hit by your attack → its blast zone.
+- **Shields:** an attack into a shieldbearer's front shows no gold pips (it would be blocked).
+- **Knife aim mode:** the 4 flight lines (faint) and what each would hit (bright), replacing the weapon preview.
+- **Enemy side, kept light** (a first version outlined every threatened tile on the board and was too crowded):
+  - **Red dots near you:** your own tile and the 4 tiles you can step to get a small red dot if ending your turn there would hurt you (next to a melee enemy, in an archer's line or a charge lane, in a lit bomber's 3×3, on spikes about to rise; for the neighbours also on raised spikes). Nothing is marked around enemies elsewhere.
+  - **Announced big moves, drawn anywhere:** an aiming archer → thin red line with an arrowhead where the arrow stops; a charger winding up → dashed red line along its lane; a lit bomber → faint red tint over its 3×3. Those enemies also carry a red `!`.
+  - Raised spikes are a red `^`, rising ones orange.
 
 ### 4.3 Drawing
 - **Phase 1–3:** glyph renderer only (ASCII/Unicode characters with colors, drawn on the canvas).
@@ -199,7 +222,7 @@ Positioning is the core strategy, so the board always shows what your next move 
 - [x] **Phase 1 (MVP):** seeded RNG, full-screen canvas layout + compact HUD/log, floor generation with reachability check (variable size), player movement (keyboard + tap), BFS enemy pathing, bump combat with fixed damage, stairs, linear run map screen, game over / restart, victory at the Vault, autosave/resume, `?` help overlay, debug tools.
 - [x] **Phase 2 (Items & Hazards):** potions, keys + locked doors, stat pickups, weapon patterns (sword/spear/axe/hammer), area consumables (bomb), push & collision, explosive barrels.
 - [x] **Phase 2.1 (Playtest fixes):** weapon damage + description in the HUD, threat preview, kick & roll barrels, spear step-and-strike, axe spin, weapons hit barrels only when adjacent, harder numbers (rest heal 3, enemy budgets +25%), device-aware help with New game button, contextual hint line.
-- [ ] **Phase 3a (Combat depth):** multiple enemy archetypes incl. archers, room hazards (traps), straight-line ranged attacks.
+- [x] **Phase 3a (Combat depth):** slime, archer, charger, bomber, shieldbearer (announced moves), fixed and timed spikes, throwing knives, red enemy-threat outlines and warning hints (save version 3).
 - [ ] **Phase 3b (Exploration):** per-floor fog of war, branching run map, then free-aim targeting.
 - [ ] **Phase 4 (Polish):** sprite rendering via the `appearance` table, sound effects via Web Audio API, optional CRT overlay.
 - [ ] **Phase 5 (Endless Mode):** nodes generated on the fly, score = deepest floor, best score saved in `localStorage`, difficulty scaling beyond floor `FLOOR_COUNT`.

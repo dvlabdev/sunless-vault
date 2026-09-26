@@ -144,6 +144,16 @@ body {
     color: var(--accent-red);
 }
 
+#knife-button .icon {
+    color: #d6eaf8;
+}
+
+/* Knife aim mode */
+.hud-button.active {
+    border-color: var(--accent-gold);
+    background-color: #3a3010;
+}
+
 .hud-button:disabled {
     opacity: 0.4;
     cursor: default;
@@ -151,9 +161,12 @@ body {
 
 /* Narrow phones: smaller text, turn counter hidden so the HUD fits one line */
 @media (max-width: 480px) and (orientation: portrait) {
+    /* Phones have spare height: the HUD wraps to a second row instead of hiding things */
     #hud {
-        gap: 0.25rem;
-        padding: 0 0.4rem;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        gap: 0.3rem 0.4rem;
+        padding: 0.3rem 0.4rem;
     }
 
     .stat-item,
