@@ -35,7 +35,7 @@
 
     const COLORS = { text: '#e0e6f0', muted: '#78839b', dim: '#3a3f4b', gold: '#f1c40f', red: '#e74c3c', line: '#323745', panel: '#0d0e11' };
     const FONT = '"Courier New", Courier, monospace';
-    const LOG_RESERVE = 56; // CSS px kept free at the bottom of the board for the log overlay
+    const LOG_RESERVE = 76; // CSS px kept free at the bottom of the board for the hint + log overlay
 
     const canvas = document.getElementById('game-canvas');
     const ctx = canvas.getContext('2d');
@@ -43,6 +43,7 @@
         hp: document.getElementById('hp-value'),
         floor: document.getElementById('floor-value'),
         weapon: document.getElementById('weapon-value'),
+        damage: document.getElementById('damage-value'),
         keys: document.getElementById('keys-value'),
         potions: document.getElementById('potions-value'),
         bombs: document.getElementById('bombs-value'),
@@ -52,9 +53,13 @@
         debug: document.getElementById('debug-badge'),
     };
     const logEl = document.getElementById('combat-log');
+    const hintEl = document.getElementById('hint');
 
     // Board layout in canvas pixels, shared with tap input (UI data, not game state).
     SV.view = { dpr: 1, tile: 32, ox: 0, oy: 0 };
+    // UI preferences set by main.js (not game state): how controls are worded, hint line on/off.
+    SV.inputMode = 'keys';
+    SV.hintsOn = true;
 
     // Canvas backing store = CSS size x devicePixelRatio, so it's sharp on every screen.
     SV.resizeCanvas = function () {
@@ -71,7 +76,8 @@
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        if (state.mode === 'floor' || (state.mode === 'dead' && state.map)) drawFloor(state);
+        const analysis = state.mode === 'floor' ? analyzeThreat(state) : null;
+        if (state.mode === 'floor' || (state.mode === 'dead' && state.map)) drawFloor(state, analysis);
         else drawRunMap(state);
 
         const tally = `${plural(state.turn, 'turn')} · ${plural(state.kills, 'kill')}`;
@@ -90,6 +96,8 @@
 
         updateHud(state);
         updateLog(state);
+        hintEl.hidden = !SV.hintsOn;
+        hintEl.textContent = SV.hintsOn ? hintText(state, analysis) : '';
     };
 
     // ---- Floor view -------------------------------------------------------
@@ -104,7 +112,7 @@
         SV.view.oy = Math.max(0, Math.floor((availH - tile * map.height) / 2));
     }
 
-    function drawFloor(state) {
+    function drawFloor(state, analysis) {
         const map = state.map;
         layoutBoard(map);
         const { tile, ox, oy } = SV.view;
@@ -126,6 +134,9 @@
             }
         }
 
+        if (analysis) drawThreat(state, analysis);
+        const incoming = analysis ? analysis.incoming : new Map();
+
         // Items under everything else, then barrels, enemies (dimmed while stunned), player.
         for (const item of state.items) {
             drawGlyph(A[item.kind].glyph, A[item.kind].color, ox + item.x * tile, oy + item.y * tile, tile);
@@ -137,7 +148,7 @@
             const px = ox + e.x * tile;
             const py = oy + e.y * tile;
             drawGlyph(A[e.type].glyph, e.stunned > 0 ? COLORS.muted : A[e.type].color, px, py, tile);
-            drawPips(e.hp, SV.ENEMY_TYPES[e.type].hp, px, py, tile);
+            drawPips(e.hp, SV.ENEMY_TYPES[e.type].hp, px, py, tile, incoming.get(e) || 0);
         }
 
         const p = state.player;
@@ -150,16 +161,132 @@
     }
 
     // Small HP squares above an enemy, so fixed damage is easy to plan around.
-    function drawPips(hp, maxHp, px, py, tile) {
+    // incoming = damage your next attack would deal: those pips turn gold (all gold = lethal).
+    function drawPips(hp, maxHp, px, py, tile, incoming) {
         const size = Math.max(2, Math.floor(tile / 10));
         const gap = Math.max(1, Math.floor(size / 2));
         let x = px + Math.floor((tile - (maxHp * size + (maxHp - 1) * gap)) / 2);
         const y = py + Math.max(1, Math.floor(tile * 0.05));
         for (let i = 0; i < maxHp; i++) {
-            ctx.fillStyle = i < hp ? COLORS.red : COLORS.dim;
+            ctx.fillStyle = i >= hp ? COLORS.dim : i >= hp - incoming ? COLORS.gold : COLORS.red;
             ctx.fillRect(x, y, size, size);
             x += size + gap;
         }
+    }
+
+    // What your next key press could do, shared by the threat preview and the hint line.
+    // reach  = every tile the weapon can reach from here (faint gold)
+    // armed  = tiles an attack would hit right now (bright gold); incoming = enemy -> damage
+    // bump / lunge = enemies you can attack by moving (spear lunges step first); spin = axe can swing
+    // barrels = [{ barrel, kind: 'armed' | 'kick' | 'diagonal', dx, dy, stop, dangerous }]
+    function analyzeThreat(state) {
+        const p = state.player;
+        const map = state.map;
+        const weapon = SV.WEAPONS[p.weapon];
+        const pattern = SV.PATTERNS[weapon.pattern];
+        const damage = SV.weaponDamage(p);
+        const key = (x, y) => y * map.width + x;
+        const near = (x, y) => Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1;
+        const a = { reach: new Set(), armed: new Set(), incoming: new Map(), bump: [], lunge: [], spin: false, barrels: [] };
+        const arm = (tiles) => {
+            for (const t of tiles) {
+                if (!SV.isWalkable(map, t.x, t.y) || a.armed.has(key(t.x, t.y))) continue;
+                a.armed.add(key(t.x, t.y));
+                const enemy = SV.enemyAt(state, t.x, t.y);
+                if (enemy) a.incoming.set(enemy, damage);
+            }
+        };
+
+        for (const [dx, dy] of SV.DIRS) {
+            const tiles = pattern(p.x, p.y, dx, dy);
+            tiles.forEach(t => { if (SV.isWalkable(map, t.x, t.y)) a.reach.add(key(t.x, t.y)); });
+            const adjacent = SV.enemyAt(state, p.x + dx, p.y + dy);
+            const far = SV.enemyAt(state, p.x + 2 * dx, p.y + 2 * dy);
+            if (adjacent) {
+                a.bump.push(adjacent);
+                arm(tiles);
+            } else if (weapon.lunge && far && !SV.isBlocked(state, p.x + dx, p.y + dy)) {
+                a.lunge.push(far);
+                arm(pattern(p.x + dx, p.y + dy, dx, dy));
+            }
+        }
+        if (weapon.spin && SV.enemyAround(state)) {
+            a.spin = true;
+            arm(pattern(p.x, p.y, 0, 0));
+        }
+
+        for (const b of state.barrels) {
+            const dx = b.x - p.x;
+            const dy = b.y - p.y;
+            if (a.armed.has(key(b.x, b.y)) && near(b.x, b.y)) {
+                a.barrels.push({ barrel: b, kind: 'armed', dangerous: true }); // your attack would set it off
+            } else if (Math.abs(dx) + Math.abs(dy) === 1) {
+                const stop = SV.rollDestination(state, b, dx, dy);
+                a.barrels.push({ barrel: b, kind: 'kick', dx, dy, stop, dangerous: near(stop.x, stop.y) });
+            } else if (near(b.x, b.y)) {
+                a.barrels.push({ barrel: b, kind: 'diagonal', dangerous: true }); // a bomb would catch you
+            }
+        }
+        return a;
+    }
+
+    // Planning aids, drawn under the entities (see analyzeThreat).
+    function drawThreat(state, a) {
+        const map = state.map;
+        a.reach.forEach(k => { if (!a.armed.has(k)) shadeTile(k % map.width, Math.floor(k / map.width), 'rgba(241, 196, 15, 0.07)'); });
+        a.armed.forEach(k => shadeTile(k % map.width, Math.floor(k / map.width), 'rgba(241, 196, 15, 0.24)'));
+        for (const info of a.barrels) {
+            const b = info.barrel;
+            if (info.kind === 'kick') {
+                for (let i = 1; i <= info.stop.moved; i++) shadeTile(b.x + info.dx * i, b.y + info.dy * i, 'rgba(211, 84, 0, 0.18)');
+                shadeBlast(map, info.stop.x, info.stop.y, info.dangerous);
+            } else {
+                shadeBlast(map, b.x, b.y, true);
+            }
+        }
+    }
+
+    // One line: the most useful thing you can do right now, worded for touch or keys.
+    function hintText(state, a) {
+        const touch = SV.inputMode === 'touch';
+        if (state.mode === 'map') return touch ? 'Tap to descend' : 'Enter: descend';
+        if (state.mode === 'dead' || state.mode === 'won') return touch ? 'Tap for a new run' : 'Enter: new run';
+
+        const p = state.player;
+        const name = e => SV.ENEMY_TYPES[e.type].name;
+        const hints = [];
+        if (a.bump.length > 0) hints.push(touch ? `Tap the ${name(a.bump[0])} to attack` : `Move into the ${name(a.bump[0])} to attack`);
+        if (a.lunge.length > 0) hints.push(touch ? `Tap toward the ${name(a.lunge[0])}: step and strike` : `Move toward the ${name(a.lunge[0])}: step and strike`);
+        if (a.spin) hints.push(touch ? 'Tap yourself to swing the axe' : 'Space: swing the axe');
+
+        const kick = a.barrels.find(i => i.kind === 'kick');
+        if (hints.length < 2 && kick) {
+            hints.push((touch ? 'Tap the barrel to kick it' : 'Move into the barrel to kick it') + (kick.dangerous ? ' (it would blow up next to you!)' : ''));
+        }
+        if (hints.length < 2) {
+            const door = SV.DIRS.some(([dx, dy]) => SV.tileAt(state.map, p.x + dx, p.y + dy) === SV.TILE.DOOR);
+            if (door) hints.push(p.keys > 0 ? (touch ? 'Tap the door to unlock it' : 'Move into the door to unlock it') : 'Find the key ⚷ to open this door');
+        }
+        if (hints.length < 2 && p.potions > 0 && p.hp * 3 <= p.maxHp) hints.push(touch ? 'HP low: tap ! to drink' : 'HP low: press P to drink');
+        if (hints.length === 0 && state.enemies.length === 0) hints.push('Floor clear: head for the stairs >');
+        if (hints.length === 0) hints.push(touch ? 'Tap a tile to move · tap yourself to wait' : 'WASD/arrows to move · Space to wait');
+        return hints.slice(0, 2).join(' · ');
+    }
+
+    // 3x3 explosion area; red when it includes the player.
+    function shadeBlast(map, cx, cy, dangerous) {
+        const color = dangerous ? 'rgba(231, 76, 60, 0.30)' : 'rgba(211, 84, 0, 0.16)';
+        for (let y = cy - 1; y <= cy + 1; y++) {
+            for (let x = cx - 1; x <= cx + 1; x++) {
+                if (x > 0 && y > 0 && x < map.width - 1 && y < map.height - 1) shadeTile(x, y, color);
+            }
+        }
+    }
+
+    function shadeTile(x, y, color) {
+        const { tile, ox, oy } = SV.view;
+        ctx.fillStyle = color;
+        ctx.fillRect(ox + x * tile, oy + y * tile, tile, tile);
     }
 
     // ---- Run map view -----------------------------------------------------
@@ -278,6 +405,7 @@
         hud.hp.textContent = `${p.hp}/${p.maxHp}`;
         hud.floor.textContent = node.type === 'vault' ? 'V' : String(node.depth);
         hud.weapon.textContent = p.weapon.charAt(0).toUpperCase() + p.weapon.slice(1);
+        hud.damage.textContent = String(SV.weaponDamage(p));
         hud.keys.textContent = String(p.keys);
         hud.potions.textContent = String(p.potions);
         hud.bombs.textContent = String(p.bombs);

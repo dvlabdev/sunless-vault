@@ -113,13 +113,46 @@
         return false;
     };
 
+    // Where a kicked barrel stops: it rolls until the next tile is blocked.
+    SV.rollDestination = function (state, barrel, dx, dy) {
+        let x = barrel.x;
+        let y = barrel.y;
+        while (!SV.isBlocked(state, x + dx, y + dy)) {
+            x += dx;
+            y += dy;
+        }
+        return { x, y, moved: Math.abs(x - barrel.x) + Math.abs(y - barrel.y) };
+    };
+
+    // Walking into a barrel kicks it: it rolls until it hits something, then explodes.
+    SV.kickBarrel = function (state, barrel, dx, dy) {
+        const stop = SV.rollDestination(state, barrel, dx, dy);
+        barrel.x = stop.x;
+        barrel.y = stop.y;
+        SV.log(state, stop.moved > 0 ? 'You kick the barrel. It rolls and hits something!' : 'The barrel is blocked!', 'combat-player');
+        SV.damageAt(state, barrel.x, barrel.y, IMPACT_DAMAGE, 'the impact');
+    };
+
+    // Is any enemy in the 8 tiles around the player? (axe spin)
+    SV.enemyAround = function (state) {
+        const p = state.player;
+        return state.enemies.some(e => Math.abs(e.x - p.x) <= 1 && Math.abs(e.y - p.y) <= 1);
+    };
+
+    SV.weaponDamage = function (player) {
+        return Math.max(1, player.atk + SV.WEAPONS[player.weapon].bonus);
+    };
+
     // Bump attack with the held weapon: its pattern, damage bonus and knockback.
     SV.playerAttack = function (state, dx, dy) {
         const p = state.player;
         const weapon = SV.WEAPONS[p.weapon];
-        const damage = Math.max(1, p.atk + weapon.bonus);
+        const damage = SV.weaponDamage(p);
         const target = SV.enemyAt(state, p.x + dx, p.y + dy);
         for (const t of SV.PATTERNS[weapon.pattern](p.x, p.y, dx, dy)) {
+            // Weapons only set off barrels right next to you (the spear's reach doesn't).
+            const adjacent = Math.abs(t.x - p.x) <= 1 && Math.abs(t.y - p.y) <= 1;
+            if (!adjacent && SV.barrelAt(state, t.x, t.y)) continue;
             SV.damageAt(state, t.x, t.y, damage, 'you');
         }
         if (weapon.knockback && target && state.enemies.includes(target)) SV.push(state, target, dx, dy);

@@ -7,7 +7,8 @@
     const SAVE_KEY = 'sunless-vault-save';
     const SAVE_VERSION = 2;          // bump whenever the shape of `state` changes
     const HELP_SEEN_KEY = 'sunless-vault-help-seen';
-    const REST_HEAL = 6;             // HP recovered between floors
+    const HINTS_KEY = 'sunless-vault-hints';
+    const REST_HEAL = 3;             // HP recovered between floors
     const POTION_HEAL = 8;
     const HEART_BONUS = 4;           // +max HP and heal
     const LOG_LIMIT = 30;
@@ -21,6 +22,9 @@
     const helpOverlay = document.getElementById('help-overlay');
     const helpButton = document.getElementById('help-button');
     const helpClose = document.getElementById('help-close');
+    const newGameButton = document.getElementById('new-game');
+    const hintsToggle = document.getElementById('hints-toggle');
+    const weaponButton = document.getElementById('weapon-button');
     const potionButton = document.getElementById('potion-button');
     const bombButton = document.getElementById('bomb-button');
 
@@ -143,7 +147,7 @@
             if (SV.enemyAt(state, nx, ny)) {
                 SV.playerAttack(state, dx, dy);
             } else if (barrel) {
-                if (SV.push(state, barrel, dx, dy)) moveTo(nx, ny); // follow the barrel
+                SV.kickBarrel(state, barrel, dx, dy);
             } else if (SV.tileAt(state.map, nx, ny) === SV.TILE.DOOR) {
                 if (p.keys === 0) {
                     SV.log(state, 'The door is locked. You need a key.', 'system');
@@ -155,9 +159,13 @@
                 SV.log(state, 'You unlock the door.', 'item');
             } else if (SV.isWalkable(state.map, nx, ny)) {
                 moveTo(nx, ny);
+                // Spear: stepping toward an enemy 2 tiles away strikes it.
+                if (SV.WEAPONS[p.weapon].lunge && SV.enemyAt(state, p.x + dx, p.y + dy)) SV.playerAttack(state, dx, dy);
             } else {
                 return; // bumping a wall costs no turn
             }
+        } else if (SV.WEAPONS[p.weapon].spin && SV.enemyAround(state)) {
+            SV.playerAttack(state, 0, 0); // axe: waiting swings it
         }
         finishTurn();
     }
@@ -208,6 +216,7 @@
             p.weapon = item.kind;
             item.kind = old;
             SV.log(state, `You take the ${p.weapon} and drop the ${old}.`, 'item');
+            describeWeapon();
             return;
         }
 
@@ -229,6 +238,14 @@
             p.hp += HEART_BONUS;
             SV.log(state, `A heart! Max HP +${HEART_BONUS}.`, 'item');
         }
+    }
+
+    // Log line such as "Spear (2 damage): hits the tile in front and the one behind it."
+    function describeWeapon() {
+        const p = state.player;
+        const weapon = SV.WEAPONS[p.weapon];
+        const name = weapon.name.charAt(0).toUpperCase() + weapon.name.slice(1);
+        SV.log(state, `${name} (${SV.weaponDamage(p)} damage): ${weapon.desc}.`, 'system');
     }
 
     // After any action that spends a turn.
@@ -300,8 +317,22 @@
 
     // ---- Input ------------------------------------------------------------
 
+    // Controls are explained for touch or keys depending on what was used last.
+    function setInputMode(mode) {
+        if (SV.inputMode === mode) return;
+        SV.inputMode = mode;
+        document.body.classList.toggle('touch', mode === 'touch');
+        document.body.classList.toggle('keys', mode === 'keys');
+        if (state) render();
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+        setInputMode(e.pointerType === 'touch' ? 'touch' : 'keys');
+    }, true);
+
     document.addEventListener('keydown', (e) => {
         if (e.ctrlKey || e.metaKey) return; // leave browser shortcuts alone
+        setInputMode('keys');
         const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
         if (!helpOverlay.hidden) {
@@ -334,6 +365,12 @@
         if (key === 'r') {
             e.preventDefault();
             requestNewRun();
+            return;
+        }
+        if (key === 'i') {
+            e.preventDefault();
+            describeWeapon();
+            render();
             return;
         }
 
@@ -401,8 +438,24 @@
     helpOverlay.addEventListener('click', (e) => {
         if (e.target === helpOverlay) hideHelp(); // tap outside the panel
     });
+    // New game lives in the help screen too, so touch players can abandon a run.
+    newGameButton.addEventListener('click', () => {
+        newGameButton.blur();
+        hideHelp();
+        requestNewRun();
+    });
+    hintsToggle.addEventListener('change', () => {
+        SV.hintsOn = hintsToggle.checked;
+        storageSet(HINTS_KEY, SV.hintsOn ? 'on' : 'off');
+        render();
+    });
 
-    // HUD buttons (mainly for touch screens): same as P and B.
+    // HUD buttons (mainly for touch screens): same as I, P and B.
+    weaponButton.addEventListener('click', () => {
+        weaponButton.blur();
+        describeWeapon();
+        render();
+    });
     potionButton.addEventListener('click', () => {
         potionButton.blur();
         if (state.mode === 'floor' && performance.now() >= inputLockedUntil) drinkPotion();
@@ -466,6 +519,11 @@
             if (state) SV.log(state, 'Welcome back.', 'system');
             else state = newRun(SV.newSeed());
         }
+
+        SV.inputMode = null;
+        setInputMode(window.matchMedia('(hover: none) and (pointer: coarse)').matches ? 'touch' : 'keys');
+        SV.hintsOn = storageGet(HINTS_KEY) !== 'off';
+        hintsToggle.checked = SV.hintsOn;
 
         if (!storageGet(HELP_SEEN_KEY)) {
             showHelp();

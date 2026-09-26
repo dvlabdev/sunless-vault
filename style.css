@@ -94,7 +94,8 @@ body {
 }
 
 #help-button,
-#help-close {
+#help-close,
+#new-game {
     font-family: var(--font-family);
     font-weight: bold;
     color: var(--text-primary);
@@ -127,6 +128,14 @@ body {
     cursor: pointer;
 }
 
+#weapon-button .icon {
+    color: var(--text-muted);
+}
+
+#weapon-button .damage {
+    color: var(--accent-gold);
+}
+
 #potion-button .icon {
     color: #ff6b9d;
 }
@@ -157,7 +166,8 @@ body {
         padding: 0 0.35rem;
     }
 
-    #turn-item {
+    #turn-item,
+    #weapon-button .icon {
         display: none;
     }
 }
@@ -221,19 +231,39 @@ body {
     touch-action: none; /* taps go to the game, not to page scroll/zoom */
 }
 
-/* Short log: last 2-3 messages overlaid at the bottom of the board */
-#combat-log {
+/* Hint line + short log (last 2-3 messages), overlaid at the bottom of the board */
+#board-text {
     position: absolute;
     left: 0.75rem;
     right: 0.75rem;
     bottom: 0.5rem;
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.3rem;
     font-size: 0.8rem;
     line-height: 1.2;
     pointer-events: none; /* never blocks taps on the board */
     text-shadow: 0 1px 2px #000;
+}
+
+#hint {
+    color: var(--accent-gold);
+    font-style: italic;
+    /* at most 2 lines on narrow screens */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+#hint[hidden] {
+    display: none;
+}
+
+#combat-log {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
 }
 
 .log-entry {
@@ -293,6 +323,34 @@ body {
     flex-direction: column;
     gap: 0.6rem;
     font-size: 0.9rem;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.help-panel .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+/* Only the controls for the current input device are shown (body class set by main.js) */
+body.touch .keys-only,
+body.keys .touch-only {
+    display: none;
+}
+
+.help-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.help-buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
 }
 
 .help-panel h2 {
@@ -304,7 +362,11 @@ body {
     color: var(--text-muted);
 }
 
-#help-close {
-    align-self: flex-end;
+#help-close,
+#new-game {
     padding: 0.4rem 1rem;
+}
+
+#new-game {
+    color: var(--accent-red);
 }

@@ -64,11 +64,13 @@
 ### 3.4 Movement & Input
 - 4-directional grid movement: WASD / Arrow Keys. Space = wait one turn.
 - **Tap-to-move (mobile):** tapping the board moves the player one step in the dominant direction (horizontal or vertical) of the tap relative to the player. Tap position is converted to a tile using the current tile size and board offset.
-- Walking into: an enemy attacks it; a barrel pushes it (you follow it if it moves); a locked door opens it if you have a key (costs a turn; without a key nothing happens and no turn is spent).
+- Walking into: an enemy attacks it; a barrel kicks it (§3.11); a locked door opens it if you have a key (costs a turn; without a key nothing happens and no turn is spent).
+- `I` / tapping the weapon in the HUD: prints what the held weapon does and its damage.
 - `P` / `!` HUD button: drink a potion. `B` / `*` HUD button: use a bomb. Both cost a turn; with none left (or at full HP for potions) nothing happens.
 - Enter / tap: descend from the run map; start a new run from the death or victory screen.
 - `?` or `H` key / `?` button: help overlay (controls). Shown automatically on the first run.
-- `R`: abandon the run and start a new game (with confirmation).
+- `R`, or the **New game** button in the help screen (the touch equivalent): abandon the run and start a new game (with confirmation).
+- **Every action has a touch equivalent:** tap the board (move/attack/kick/unlock, spear step-and-strike), tap yourself (wait / axe spin), HUD buttons for weapon details, potion, bomb and help, New game in the help screen.
 - `?seed=123` at the end of the page address starts that exact run (bug reproduction).
 
 ### 3.5 Combat
@@ -80,8 +82,8 @@
     | Weapon | Glyph | Hits | Bonus | Notes |
     |---|---|---|---|---|
     | Sword | `/` | The tile in front | 0 | Starting weapon |
-    | Spear | `↑` | The tile in front + the one behind it | 0 | Can detonate a barrel 2 tiles away |
-    | Axe | `Y` | All 8 tiles around you | −1 | Also hits adjacent barrels |
+    | Spear | `↑` | The tile in front + the one behind it | 0 | **Step and strike:** moving toward an enemy 2 tiles away (free tile in between) moves you 1 tile and attacks it in the same turn |
+    | Axe | `Y` | All 8 tiles around you | −1 | **Spin:** waiting (Space / tap yourself) swings it if any enemy is among the 8 tiles; hits adjacent barrels too |
     | Hammer | `T` | The tile in front | 0 | Knockback 1 tile (§3.11) |
   - *Phase 2 — bomb:* instant and player-safe: a 3×3 explosion centred on the player that spares the player's tile. Barrels it sets off can still hurt you. `B` key or HUD button; stored as a counter.
   - *Phase 3 — straight-line ranged:* Shift + direction (keyboard) or tap an enemy on the same row/column (mobile). The shot travels until it hits a wall or an enemy. Uses ammo. Ranged enemies (archers) show their aim line one turn before firing.
@@ -102,7 +104,7 @@
 
 ### 3.8 Progression & Items
 - **Player start:** 20 HP, 2 attack.
-- **Resting:** reaching the stairs heals `REST_HEAL` (6) HP, up to max HP.
+- **Resting:** reaching the stairs heals `REST_HEAL` (3) HP, up to max HP. (Was 6 in Phase 1; lowered together with ~25% higher enemy budgets after playtests showed the run was too easy.)
 - **Phase 1 enemies** (same behaviour, different stats; real archetypes come in Phase 3):
   | Enemy | HP | Attack | Budget cost | From floor |
   |---|---|---|---|---|
@@ -134,7 +136,8 @@
 ### 3.11 Environment & Hazards (Phase 2)
 All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`, which hits whatever entity stands on a tile. Barrels, bombs, knockback and collisions all use it.
 - **Explosive Barrels** `O`: destructible entities with 1 HP that block movement. Taking any damage makes them explode: 3 damage to every entity in the 3×3 around the barrel, and inner wall tiles in that 3×3 become floor.
-  - **Walking into a barrel pushes it** (with any weapon) instead of attacking it; you follow it if it moves. Weapon sweeps (axe), spear reach, bombs, other explosions and impacts damage it. A barrel that can't move takes impact damage and explodes where it stands, so a barrel can never permanently block a path.
+  - **Kick & roll:** walking into a barrel kicks it (with any weapon): it rolls in a straight line until the next tile is blocked (wall, door, enemy, barrel), then explodes there. If it rolled at least 1 tile, you're outside the blast; if it was blocked right away, it explodes next to you. So barrels are a ranged weapon: line one up with enemies and kick. They can never permanently block a path.
+  - Weapons only damage a barrel when you're right next to it (8 neighbours): the axe sweep does, the spear's second tile doesn't. Hammer-knocked enemies (impact), bombs and other explosions also set barrels off.
   - The outer border wall is indestructible (the board edge must stay closed).
   - Stairs, locked doors and items are unaffected (otherwise keys become pointless).
   - Chain reactions use a queue: a barrel caught in a blast explodes after the current one, and each barrel explodes only once (no infinite loops).
@@ -155,7 +158,17 @@ All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`,
 ### 4.2 Minimal UI
 - **HUD:** one compact line of icon + number: HP, floor, keys, turn (more counters added as items arrive).
 - **Log:** only the last 2–3 messages, older ones fade out. No scrolling panel.
-- **Help:** `?` overlay replaces a permanent controls footer.
+- **Help:** `?` overlay replaces a permanent controls footer. It shows the controls for the current input device (touch list or key list), a **Show hints** checkbox and a **New game** button.
+- **Input mode** (UI only, not saved in `state`): starts as touch on devices without hover and with a coarse pointer, otherwise keys; switches to keys on any key press and to touch on any touch. Help and hints are worded accordingly.
+- **Hint line:** one line above the log with the 1–2 most useful things you can do right now, worded for touch or keys, in priority order: descend / new run (map and end screens) → attack available (bump, spear step-and-strike, axe spin) → kick an adjacent barrel (with a warning if it would blow up next to you) → unlock an adjacent door / find the key → drink a potion when HP ≤ 1/3 → "floor clear: head for the stairs" → how to move and wait. It reuses the threat-preview analysis, so both always agree. Can be turned off in the help screen (stored per browser).
+- **Weapon in the HUD:** name + damage (gold number); tappable for its description.
+
+### 4.2b Threat preview (planning aid)
+Positioning is the core strategy, so the board always shows what your next move would do. Drawn under the entities:
+- **Faint gold:** every tile the held weapon can reach from where you stand (sword: 4 around you; spear: 4 + the tiles 2 away; axe: all 8).
+- **Bright gold:** tiles your next key press would hit right now: an enemy next to you (bump), a spear step-and-strike on an enemy 2 tiles away, or an axe spin when any enemy is among the 8 tiles.
+- **Gold HP pips:** the damage an enemy would take from that attack; all gold = it dies.
+- **Barrels:** next to you in a straight line → its roll path and the 3×3 blast where it would stop (orange; red if you'd be inside). Diagonally next to you → red blast zone (a bomb would catch you). Hit by your attack → its blast zone.
 
 ### 4.3 Drawing
 - **Phase 1–3:** glyph renderer only (ASCII/Unicode characters with colors, drawn on the canvas).
@@ -185,6 +198,8 @@ All damage goes through one routine, `SV.damageAt(state, x, y, amount, source)`,
 ## 7. Development Roadmap
 - [x] **Phase 1 (MVP):** seeded RNG, full-screen canvas layout + compact HUD/log, floor generation with reachability check (variable size), player movement (keyboard + tap), BFS enemy pathing, bump combat with fixed damage, stairs, linear run map screen, game over / restart, victory at the Vault, autosave/resume, `?` help overlay, debug tools.
 - [x] **Phase 2 (Items & Hazards):** potions, keys + locked doors, stat pickups, weapon patterns (sword/spear/axe/hammer), area consumables (bomb), push & collision, explosive barrels.
-- [ ] **Phase 3 (Depth):** multiple enemy archetypes incl. archers, room hazards, straight-line ranged attacks, per-floor fog of war, branching run map, then free-aim targeting.
+- [x] **Phase 2.1 (Playtest fixes):** weapon damage + description in the HUD, threat preview, kick & roll barrels, spear step-and-strike, axe spin, weapons hit barrels only when adjacent, harder numbers (rest heal 3, enemy budgets +25%), device-aware help with New game button, contextual hint line.
+- [ ] **Phase 3a (Combat depth):** multiple enemy archetypes incl. archers, room hazards (traps), straight-line ranged attacks.
+- [ ] **Phase 3b (Exploration):** per-floor fog of war, branching run map, then free-aim targeting.
 - [ ] **Phase 4 (Polish):** sprite rendering via the `appearance` table, sound effects via Web Audio API, optional CRT overlay.
 - [ ] **Phase 5 (Endless Mode):** nodes generated on the fly, score = deepest floor, best score saved in `localStorage`, difficulty scaling beyond floor `FLOOR_COUNT`.

@@ -17,16 +17,16 @@
     // Sizes include the outer walls. special: null | 'ambush' | 'corridor' | 'cavern'.
     // loot = loose items, barrels = explosive barrels, closet = locked treasure closet + key.
     SV.FLOOR_PLAN = [
-        { width: 9,  height: 9,  enemyBudget: 2,  special: null,       loot: 1, barrels: 0, closet: false },
-        { width: 11, height: 11, enemyBudget: 3,  special: null,       loot: 1, barrels: 1, closet: true },
-        { width: 13, height: 11, enemyBudget: 4,  special: null,       loot: 2, barrels: 1, closet: false },
-        { width: 15, height: 15, enemyBudget: 5,  special: null,       loot: 2, barrels: 2, closet: true },
-        { width: 9,  height: 9,  enemyBudget: 5,  special: 'ambush',   loot: 1, barrels: 2, closet: false },
+        { width: 9,  height: 9,  enemyBudget: 3,  special: null,       loot: 1, barrels: 0, closet: false },
+        { width: 11, height: 11, enemyBudget: 4,  special: null,       loot: 1, barrels: 1, closet: true },
+        { width: 13, height: 11, enemyBudget: 5,  special: null,       loot: 2, barrels: 1, closet: false },
         { width: 15, height: 15, enemyBudget: 6,  special: null,       loot: 2, barrels: 2, closet: true },
-        { width: 17, height: 7,  enemyBudget: 6,  special: 'corridor', loot: 2, barrels: 2, closet: false },
-        { width: 15, height: 15, enemyBudget: 8,  special: null,       loot: 2, barrels: 3, closet: true },
-        { width: 13, height: 13, enemyBudget: 8,  special: null,       loot: 2, barrels: 2, closet: false },
-        { width: 17, height: 17, enemyBudget: 10, special: 'cavern',   loot: 3, barrels: 4, closet: true },
+        { width: 9,  height: 9,  enemyBudget: 6,  special: 'ambush',   loot: 1, barrels: 2, closet: false },
+        { width: 15, height: 15, enemyBudget: 8,  special: null,       loot: 2, barrels: 2, closet: true },
+        { width: 17, height: 7,  enemyBudget: 8,  special: 'corridor', loot: 2, barrels: 2, closet: false },
+        { width: 15, height: 15, enemyBudget: 10, special: null,       loot: 2, barrels: 3, closet: true },
+        { width: 13, height: 13, enemyBudget: 10, special: null,       loot: 2, barrels: 2, closet: false },
+        { width: 17, height: 17, enemyBudget: 13, special: 'cavern',   loot: 3, barrels: 4, closet: true },
     ];
     SV.FLOOR_COUNT = SV.FLOOR_PLAN.length;
 

@@ -14,10 +14,10 @@
     // Sidegrades: pattern = which tiles a bump attack hits (see SV.PATTERNS in combat.js),
     // bonus = added to the player's attack (minimum damage 1).
     SV.WEAPONS = {
-        sword:  { name: 'sword',  pattern: 'sword',  bonus: 0 },
-        spear:  { name: 'spear',  pattern: 'spear',  bonus: 0 },
-        axe:    { name: 'axe',    pattern: 'axe',    bonus: -1 },
-        hammer: { name: 'hammer', pattern: 'hammer', bonus: 0, knockback: true },
+        sword:  { name: 'sword',  pattern: 'sword',  bonus: 0,  desc: 'hits the tile in front' },
+        spear:  { name: 'spear',  pattern: 'spear',  bonus: 0,  desc: 'hits the tile in front and the one behind it; stepping toward an enemy 2 tiles away strikes it', lunge: true },
+        axe:    { name: 'axe',    pattern: 'axe',    bonus: -1, desc: 'hits all 8 tiles around you, 1 less damage; waiting swings it', spin: true },
+        hammer: { name: 'hammer', pattern: 'hammer', bonus: 0,  desc: 'hits the tile in front and knocks the enemy back 1 tile', knockback: true },
     };
 
     // Loose floor loot: weight = relative chance; 'weapon' becomes a random weapon.

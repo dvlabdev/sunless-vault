@@ -13,7 +13,7 @@
         <header id="hud">
             <div class="stat-item" title="Health"><span class="icon">♥</span><span id="hp-value" class="value">20/20</span></div>
             <div class="stat-item" title="Floor"><span class="icon">▼</span><span id="floor-value" class="value">1</span></div>
-            <div class="stat-item" title="Weapon"><span class="icon">⚔</span><span id="weapon-value" class="value">Sword</span></div>
+            <button id="weapon-button" class="hud-button" type="button" title="Weapon and damage (I: what it does)"><span class="icon">⚔</span><span id="weapon-value">Sword</span><span id="damage-value" class="damage">2</span></button>
             <div class="stat-item" title="Keys"><span class="icon">⚷</span><span id="keys-value" class="value">0</span></div>
             <button id="potion-button" class="hud-button" type="button" title="Drink a potion (P)"><span class="icon">!</span><span id="potions-value">0</span></button>
             <button id="bomb-button" class="hud-button" type="button" title="Use a bomb (B)"><span class="icon">*</span><span id="bombs-value">0</span></button>
@@ -26,9 +26,12 @@
         <main id="viewport">
             <canvas id="game-canvas"></canvas>
 
-            <!-- Short log: last 2-3 messages, older ones fade -->
-            <div id="combat-log" aria-live="polite">
-                <p class="log-entry system">Welcome to The Sunless Vault.</p>
+            <!-- Text over the bottom of the board: what you can do now + last 2-3 log messages -->
+            <div id="board-text">
+                <p id="hint"></p>
+                <div id="combat-log" aria-live="polite">
+                    <p class="log-entry system">Welcome to The Sunless Vault.</p>
+                </div>
             </div>
         </main>
     </div>
@@ -37,16 +40,37 @@
     <div id="help-overlay" hidden>
         <div class="help-panel">
             <h2>How to play</h2>
-            <p><strong>Move / attack:</strong> WASD or Arrow keys, or tap the board</p>
-            <p><strong>Wait a turn:</strong> Space, or tap yourself</p>
-            <p><strong>Descend / confirm:</strong> Enter, or tap</p>
-            <p><strong>Drink potion:</strong> P, or the ! button</p>
-            <p><strong>Use bomb:</strong> B, or the * button (hits all around you, not you)</p>
-            <p><strong>New game:</strong> R</p>
-            <p><strong>Help:</strong> ? or H</p>
+
+            <!-- Shown on touch screens -->
+            <div class="touch-only controls">
+                <p><strong>Move / attack:</strong> tap the board: you step toward the tap</p>
+                <p><strong>Wait a turn:</strong> tap yourself (with the axe: swing it)</p>
+                <p><strong>Descend / new run:</strong> tap the screen</p>
+                <p><strong>Drink potion:</strong> the ! button</p>
+                <p><strong>Use bomb:</strong> the * button (hits all around you, not you)</p>
+                <p><strong>Weapon details:</strong> tap the weapon</p>
+            </div>
+
+            <!-- Shown with a keyboard -->
+            <div class="keys-only controls">
+                <p><strong>Move / attack:</strong> WASD or Arrow keys</p>
+                <p><strong>Wait a turn:</strong> Space (with the axe: swing it)</p>
+                <p><strong>Descend / new run:</strong> Enter</p>
+                <p><strong>Drink potion:</strong> P, or the ! button</p>
+                <p><strong>Use bomb:</strong> B, or the * button (hits all around you, not you)</p>
+                <p><strong>Weapon details:</strong> I, or click the weapon</p>
+                <p><strong>New game:</strong> R &nbsp; <strong>Help:</strong> ? or H</p>
+            </div>
+
             <p class="muted">Walk into an enemy to attack it. Damage is fixed: red pips show enemy HP. Find the stairs (&gt;) to descend, and reach the Vault below floor 10.</p>
-            <p class="muted">Step on items to pick them up. Weapons swap: spear ↑ hits 2 in a line, axe Y hits all around (−1 damage), hammer T knocks back. Walk into a barrel O to push it; blasts and impacts make it explode. A key ⚷ opens a locked door +.</p>
-            <button id="help-close" type="button">Close</button>
+            <p class="muted">Gold tiles show where your weapon reaches; bright gold = what your attack would hit now. Gold HP pips = damage you'd deal (all gold: it dies).</p>
+            <p class="muted">Step on items to pick them up. Weapons swap: sword / hits 1 tile; spear ↑ hits 2 in a line, and stepping toward an enemy 2 tiles away strikes it; axe Y hits all 8 around (−1 damage), and waiting swings it; hammer T knocks back.</p>
+            <p class="muted">Kick a barrel O by walking into it: it rolls until it hits something and explodes (3×3). The shaded path shows where; red means you're in the blast. A key ⚷ opens a locked door +.</p>
+            <label class="help-option"><input id="hints-toggle" type="checkbox" checked> Show hints (what you can do now)</label>
+            <div class="help-buttons">
+                <button id="new-game" type="button">New game</button>
+                <button id="help-close" type="button">Close</button>
+            </div>
         </div>
     </div>
 
